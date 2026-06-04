@@ -250,109 +250,10 @@
     .comment-list { display: grid; gap: 8px; }
     .comment { display: grid; grid-template-columns: 76px 1fr; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 10px; }
     .comment-likes { color: var(--amber); font-variant-numeric: tabular-nums; }
-    .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .analysis-item {
-      border: 1px solid rgba(232, 244, 236, 0.13);
-      border-radius: var(--radius-lg);
-      background: linear-gradient(180deg, rgba(255,255,255,0.032), rgba(255,255,255,0.012)), var(--panel-3);
-      padding: 17px;
-      display: grid;
-      gap: 13px;
-    }
-    .analysis-item h4 {
-      margin: 0;
-      font-size: 16px;
-      color: var(--cyan);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .analysis-item h4::before {
-      content: "";
-      width: 8px;
-      height: 8px;
-      border-radius: 99px;
-      background: var(--cyan);
-      box-shadow: 0 0 18px rgba(104, 207, 231, 0.42);
-      flex: 0 0 auto;
-    }
-    .analysis-lead {
-      border: 1px solid rgba(240, 189, 95, 0.28);
-      border-left: 4px solid var(--amber);
-      border-radius: var(--radius);
-      background: rgba(240, 189, 95, 0.08);
-      padding: 12px 13px;
-      color: #fff1ca;
-      font-size: 18px;
-      line-height: 1.7;
-      font-weight: 760;
-      word-break: break-word;
-    }
-    .analysis-tags { display: flex; flex-wrap: wrap; gap: 7px; }
-    .analysis-tag {
-      border: 1px solid rgba(104, 207, 231, 0.28);
-      border-radius: 999px;
-      background: rgba(104, 207, 231, 0.08);
-      color: #c8f4ff;
-      padding: 4px 9px;
-      font-size: 13px;
-      line-height: 1.25;
-      font-weight: 720;
-    }
-    .analysis-content { display: grid; gap: 9px; }
-    .analysis-paragraph {
-      border: 1px solid rgba(255,255,255,0.055);
-      border-radius: var(--radius);
-      background: rgba(255,255,255,0.026);
-      padding: 11px 12px;
-      color: #e5eee9;
-      font-size: 17px;
-      line-height: 1.9;
-      word-break: break-word;
-    }
-    .analysis-list {
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 9px;
-      list-style: none;
-    }
-    .analysis-list li {
-      position: relative;
-      border: 1px solid rgba(255,255,255,0.055);
-      border-radius: var(--radius);
-      background: rgba(255,255,255,0.026);
-      padding: 11px 12px 11px 36px;
-      color: #e5eee9;
-      font-size: 17px;
-      line-height: 1.9;
-      word-break: break-word;
-    }
-    .analysis-list li::before {
-      content: attr(data-index);
-      position: absolute;
-      left: 10px;
-      top: 13px;
-      width: 18px;
-      height: 18px;
-      border-radius: 99px;
-      background: rgba(87, 214, 141, 0.13);
-      color: #bff3d3;
-      display: grid;
-      place-items: center;
-      font-size: 11px;
-      font-weight: 820;
-      font-variant-numeric: tabular-nums;
-    }
-    .analysis-hit { color: #fff2ba; font-weight: 840; }
-    .analysis-num { color: #bff3d3; font-weight: 840; font-variant-numeric: tabular-nums; }
-    .analysis-empty {
-      color: var(--muted);
-      border: 1px dashed var(--line-strong);
-      border-radius: var(--radius);
-      padding: 12px;
-      line-height: 1.7;
-    }
+    .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .analysis-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 16px; }
+    .analysis-item h4 { margin: 0 0 10px; font-size: 15px; color: var(--cyan); }
+    .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 17px; line-height: 1.92; padding-left: 20px; }
     .analysis-item.wide { grid-column: 1 / -1; }
     .side-panel { display: grid; gap: 12px; align-content: start; }
     .failure-card { border: 1px solid rgba(255, 116, 109, 0.32); border-radius: var(--radius); background: #181311; padding: 12px; display: grid; gap: 8px; }
@@ -849,64 +750,10 @@
     function parseAnalysis(r) {
       try { return r.analysis_json ? JSON.parse(r.analysis_json) : JSON.parse(r.analysis_text || '{}'); } catch (_) { return null; }
     }
-    function prettyKey(key) {
-      return String(key || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
-    }
-    function analysisPlain(value) {
-      if (value === null || value === undefined || value === '') return '';
-      if (Array.isArray(value)) return value.map(analysisPlain).filter(Boolean).join('；');
-      if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${prettyKey(key)}：${analysisPlain(val)}`).filter(x => !x.endsWith('：')).join('；');
-      return String(value).trim();
-    }
-    function analysisItems(value) {
-      if (value === null || value === undefined || value === '') return [];
-      if (Array.isArray(value)) return value.map(analysisPlain).filter(Boolean);
-      if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${prettyKey(key)}：${analysisPlain(val)}`).filter(x => !x.endsWith('：'));
-      const raw = String(value).trim();
-      const parts = raw.split(/\n+|(?<=[。！？!?])\s*/).map(x => x.trim()).filter(Boolean);
-      return parts.length ? parts : [raw];
-    }
-    function firstInsight(items) {
-      const text = items.find(x => x && x.length >= 6) || items[0] || '';
-      const sentence = text.split(/(?<=[。！？!?])\s*/).map(x => x.trim()).filter(Boolean)[0] || text;
-      return sentence.length > 96 ? sentence.slice(0, 96) + '...' : sentence;
-    }
-    function escapeRegExp(text) {
-      return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-    function extractAnalysisTags(label, items) {
-      const text = `${label}\n${items.join('\n')}`;
-      const terms = ['直播', '话题', '钩子', '爆点', '爆款', '争议', '反差', '共鸣', '痛点', '避坑', '真实', '案例', '对比', '价格', '成本', '效率', '风险', '评论', '互动', '信任', '转化', '悬念', '焦虑', '需求', '卖点', '场景', '人设', '开头', '结尾', '方法', '观点', '选择', '问题'];
-      const tags = [];
-      for (const term of terms) if (text.includes(term) && !tags.includes(term)) tags.push(term);
-      const quoted = text.matchAll(/[「“"']([^「」“”"'\n]{2,12})[」”"']/g);
-      for (const match of quoted) {
-        const term = match[1].trim();
-        if (term && !tags.includes(term)) tags.push(term);
-        if (tags.length >= 8) break;
-      }
-      return tags.slice(0, 8);
-    }
-    function highlightAnalysisText(text) {
-      let out = html(text).replace(/(\d+(?:\.\d+)?%?)/g, '<span class="analysis-num">$1</span>');
-      const terms = ['直播', '话题', '钩子', '爆点', '爆款', '争议', '反差', '共鸣', '痛点', '避坑', '真实', '对比', '风险', '评论', '互动', '信任', '转化', '悬念', '焦虑', '需求', '卖点', '场景', '问题', '直接说', '可以讲'];
-      for (const term of terms.sort((a, b) => b.length - a.length)) {
-        out = out.replace(new RegExp(escapeRegExp(html(term)), 'g'), `<span class="analysis-hit">${html(term)}</span>`);
-      }
-      return out;
-    }
-    function renderValue(value, label) {
-      const items = analysisItems(value);
-      if (!items.length) return '<div class="analysis-empty">暂无</div>';
-      const lead = firstInsight(items);
-      const tags = extractAnalysisTags(label, items);
-      const body = items.length > 1
-        ? `<ul class="analysis-list">${items.map((item, index) => `<li data-index="${index + 1}">${highlightAnalysisText(item)}</li>`).join('')}</ul>`
-        : `<div class="analysis-paragraph">${highlightAnalysisText(items[0])}</div>`;
-      return `
-        <div class="analysis-lead">${highlightAnalysisText(lead)}</div>
-        ${tags.length ? `<div class="analysis-tags">${tags.map(tag => `<span class="analysis-tag">${html(tag)}</span>`).join('')}</div>` : ''}
-        <div class="analysis-content">${body}</div>`;
+    function renderValue(value) {
+      if (Array.isArray(value)) return `<ul>${value.map(v => typeof v === 'object' ? `<li>${html(JSON.stringify(v, null, 2))}</li>` : `<li>${html(v)}</li>`).join('')}</ul>`;
+      if (value && typeof value === 'object') return `<p>${html(JSON.stringify(value, null, 2))}</p>`;
+      return `<p>${html(value || '暂无')}</p>`;
     }
     function analysisBlocks(r) {
       const parsed = parseAnalysis(r);
@@ -915,7 +762,7 @@
         ['topic_summary','主题总结'], ['hook','爆点钩子'], ['content_structure','内容结构'], ['viral_factors','爆款因素'],
         ['audience_focus','用户关注点'], ['live_talking_points','直播可聊点'], ['usable_quotes','可复用话术'], ['risk_notes','风险提示']
       ];
-      return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${renderValue(parsed[key], label)}</div>`).join('')}</div>`;
+      return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${renderValue(parsed[key])}</div>`).join('')}</div>`;
     }
     function blockShell(id, title, actions, body) {
       const collapsed = collapsedBlocks.has(id);
