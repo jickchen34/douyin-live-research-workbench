@@ -522,6 +522,8 @@
     let busy = false;
     let leftRailCollapsed = false;
     let rightRailOpen = false;
+    let creatorColorMap = new Map();
+    const creatorColorSeed = Math.random();
     const collapsedBlocks = new Set(['transcript']);
 
     const statusOptions = [
@@ -546,22 +548,42 @@
     }
     function safe(v) { return v === null || v === undefined || v === '' ? '暂无' : String(v); }
     function html(v) { return safe(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function colorFromHue(hue) {
+      return {
+        bg: `hsl(${hue} 30% 21%)`,
+        border: `hsl(${hue} 52% 54% / 0.34)`,
+        accent: `hsl(${hue} 62% 62% / 0.62)`
+      };
+    }
+    function seededRandom(seed) {
+      return Math.sin(seed * 10000) - Math.floor(Math.sin(seed * 10000));
+    }
+    function shuffledColors(colors) {
+      const result = [...colors];
+      for (let i = result.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(seededRandom(creatorColorSeed + i) * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    }
+    function buildCreatorColors() {
+      const palette = shuffledColors([
+        colorFromHue(148), colorFromHue(191), colorFromHue(39), colorFromHue(6),
+        colorFromHue(224), colorFromHue(82), colorFromHue(276), colorFromHue(24),
+        colorFromHue(168), colorFromHue(328), colorFromHue(55), colorFromHue(205)
+      ]);
+      const startHue = Math.round(creatorColorSeed * 360);
+      const creators = [...new Set(rows.map(r => safe(r.creator_name).trim() || '未知账号'))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+      creatorColorMap = new Map();
+      creators.forEach((creator, index) => {
+        const color = palette[index] || colorFromHue(Math.round((startHue + index * 137.508) % 360));
+        creatorColorMap.set(creator, color);
+      });
+    }
     function creatorColorStyle(name) {
       const key = safe(name).trim() || '未知账号';
-      const palette = [
-        ['36, 74, 58', '87, 214, 141'],
-        ['35, 66, 75', '104, 207, 231'],
-        ['72, 61, 37', '240, 189, 95'],
-        ['69, 45, 52', '255, 116, 109'],
-        ['50, 56, 82', '155, 188, 255'],
-        ['58, 67, 43', '178, 214, 96'],
-        ['66, 49, 77', '207, 158, 255'],
-        ['70, 52, 39', '229, 156, 98']
-      ];
-      let hash = 0;
-      for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
-      const [bg, accent] = palette[Math.abs(hash) % palette.length];
-      return `style="--creator-bg: rgba(${bg}, 0.34); --creator-border: rgba(${accent}, 0.26); --creator-accent: rgba(${accent}, 0.56);"`;
+      const color = creatorColorMap.get(key) || colorFromHue(191);
+      return `style="--creator-bg: ${color.bg}; --creator-border: ${color.border}; --creator-accent: ${color.accent};"`;
     }
     function setStatus(text, mode) { els.status.textContent = text; els.status.className = 'status-box' + (mode ? ' ' + mode : ''); }
     function setBusy(value) {
@@ -611,6 +633,7 @@
       rows = await res.json();
       if (!selectedId && rows.length) selectedId = rows[0].id;
       selectedIds = new Set([...selectedIds].filter(id => rows.some(r => r.id === id)));
+      buildCreatorColors();
       fillSelects();
       renderAll();
     }
