@@ -138,7 +138,7 @@
     .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .workbench { display: grid; grid-template-rows: auto auto auto; gap: 16px; }
     .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) repeat(6, minmax(96px, 0.55fr)) auto; gap: 10px; align-items: end; }
-    .harvest-form .category-field { min-width: 140px; }
+    .harvest-form .category-field { min-width: 140px; display: grid; gap: 6px; }
     .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); min-height: 38px; margin: 0; }
     .toggle input { width: 16px; min-height: 16px; }
     .status-box {
@@ -382,8 +382,12 @@
                 <input id="target" placeholder="https://www.douyin.com/user/MS4w..." required />
               </div>
               <div class="category-field">
-                <label for="categoryInput">账号分类</label>
-                <input id="categoryInput" value="未分类" />
+                <label for="categorySelect">账号分类</label>
+                <select id="categorySelect">
+                  <option value="未分类">未分类</option>
+                  <option value="__custom__">自定义分类</option>
+                </select>
+                <input id="customCategoryInput" placeholder="输入自定义分类" hidden />
               </div>
               <div>
                 <label for="pageSize">每页数量</label>
@@ -596,7 +600,7 @@
     const els = {};
     function bind() {
       for (const id of [
-        'summary','harvestForm','target','categoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','runButton','status','refreshButton',
+        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','runButton','status','refreshButton',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
@@ -736,9 +740,27 @@
       for (const v of values) { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; select.appendChild(opt); }
       select.value = values.includes(old) ? old : '';
     }
+    function fillHarvestCategorySelect(values) {
+      const old = els.categorySelect.value || '未分类';
+      const custom = els.customCategoryInput.value.trim();
+      const options = ['未分类', ...values.filter(v => v !== '未分类')];
+      els.categorySelect.innerHTML = options.map(v => `<option value="${html(v)}">${html(v)}</option>`).join('') + '<option value="__custom__">自定义分类</option>';
+      els.categorySelect.value = options.includes(old) ? old : (old === '__custom__' || custom ? '__custom__' : '未分类');
+      updateCustomCategoryVisibility(false);
+    }
+    function updateCustomCategoryVisibility(shouldFocus = true) {
+      const isCustom = els.categorySelect.value === '__custom__';
+      els.customCategoryInput.hidden = !isCustom;
+      if (isCustom && shouldFocus) els.customCategoryInput.focus();
+    }
+    function selectedHarvestCategory() {
+      if (els.categorySelect.value === '__custom__') return els.customCategoryInput.value.trim() || '未分类';
+      return els.categorySelect.value || '未分类';
+    }
     function fillSelects() {
       const creators = [...new Set(rows.map(r => r.creator_name).filter(Boolean))].sort();
       const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
+      fillHarvestCategorySelect(cats);
       for (const id of ['batchCreator','libCreator','detailCreator']) fillSelect(els[id], creators, '全部账号');
       for (const id of ['batchCategory','libCategory','detailCategory']) fillSelect(els[id], cats, '全部分类');
       for (const id of ['batchStatus','libStatus','detailStatus']) fillStatusSelect(els[id]);
@@ -1078,11 +1100,12 @@
       document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
       els.harvestForm.addEventListener('submit', async event => {
         event.preventDefault(); setBusy(true); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
-        const payload = { target: els.target.value.trim(), category: els.categoryInput.value.trim() || '未分类', page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
+        const payload = { target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
         try { const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }); const fetched = data.result.fetched_video_count ?? data.result.video_count; setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok'); await loadAll(); }
         catch (error) { setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
         finally { setBusy(false); }
       });
+      els.categorySelect.addEventListener('change', () => updateCustomCategoryVisibility(true));
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
       for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
       for (const id of ['detailKeyword','detailCreator','detailCategory','detailStatus']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
