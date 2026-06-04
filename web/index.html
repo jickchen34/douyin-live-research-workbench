@@ -176,18 +176,19 @@
     .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .task-card {
-      border: 1px solid var(--line);
+      border: 1px solid var(--creator-border, var(--line));
       border-radius: var(--radius-lg);
-      background: var(--panel);
+      background: linear-gradient(135deg, var(--creator-bg, var(--panel)), rgba(10, 13, 12, 0.96));
       padding: 14px;
       cursor: pointer;
       min-height: 164px;
       display: grid;
       gap: 10px;
       align-content: start;
+      box-shadow: inset 4px 0 0 var(--creator-accent, rgba(104, 207, 231, 0.32));
     }
-    .task-card:hover { border-color: rgba(104, 207, 231, 0.5); }
-    .task-card.active { border-color: rgba(87, 214, 141, 0.78); outline: 1px solid rgba(87, 214, 141, 0.65); }
+    .task-card:hover { border-color: var(--creator-accent, rgba(104, 207, 231, 0.5)); }
+    .task-card.active { border-color: rgba(87, 214, 141, 0.78); outline: 1px solid rgba(87, 214, 141, 0.65); box-shadow: inset 4px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.65)), 0 0 0 1px rgba(87, 214, 141, 0.12); }
     .task-card-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
     .task-check { width: 18px; min-height: 18px; flex: 0 0 auto; margin-top: 2px; }
     .task-title { font-weight: 780; line-height: 1.45; font-size: 15px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
@@ -226,8 +227,16 @@
     }
     .side-filters { display: grid; gap: 8px; margin-bottom: 10px; }
     .compact-list { display: grid; gap: 10px; }
-    .compact-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 13px; cursor: pointer; min-height: 94px; }
-    .compact-card.active { border-color: rgba(87, 214, 141, 0.72); }
+    .compact-card {
+      border: 1px solid var(--creator-border, var(--line));
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, var(--creator-bg, var(--panel-3)), rgba(10, 13, 12, 0.96));
+      padding: 13px;
+      cursor: pointer;
+      min-height: 94px;
+      box-shadow: inset 4px 0 0 var(--creator-accent, rgba(104, 207, 231, 0.28));
+    }
+    .compact-card.active { border-color: rgba(87, 214, 141, 0.72); box-shadow: inset 4px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.65)), 0 0 0 1px rgba(87, 214, 141, 0.12); }
     .compact-title { font-size: 14px; font-weight: 760; line-height: 1.48; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
     .detail-main { display: grid; gap: 14px; }
     .hero-detail { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 16px; }
@@ -253,7 +262,7 @@
     .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .analysis-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 16px; }
     .analysis-item h4 { margin: 0 0 10px; font-size: 15px; color: var(--cyan); }
-    .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 17px; line-height: 1.92; padding-left: 20px; }
+    .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 19px; line-height: 2.05; padding-left: 20px; }
     .analysis-item.wide { grid-column: 1 / -1; }
     .side-panel { display: grid; gap: 12px; align-content: start; }
     .failure-card { border: 1px solid rgba(255, 116, 109, 0.32); border-radius: var(--radius); background: #181311; padding: 12px; display: grid; gap: 8px; }
@@ -537,6 +546,23 @@
     }
     function safe(v) { return v === null || v === undefined || v === '' ? '暂无' : String(v); }
     function html(v) { return safe(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function creatorColorStyle(name) {
+      const key = safe(name).trim() || '未知账号';
+      const palette = [
+        ['36, 74, 58', '87, 214, 141'],
+        ['35, 66, 75', '104, 207, 231'],
+        ['72, 61, 37', '240, 189, 95'],
+        ['69, 45, 52', '255, 116, 109'],
+        ['50, 56, 82', '155, 188, 255'],
+        ['58, 67, 43', '178, 214, 96'],
+        ['66, 49, 77', '207, 158, 255'],
+        ['70, 52, 39', '229, 156, 98']
+      ];
+      let hash = 0;
+      for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
+      const [bg, accent] = palette[Math.abs(hash) % palette.length];
+      return `style="--creator-bg: rgba(${bg}, 0.34); --creator-border: rgba(${accent}, 0.26); --creator-accent: rgba(${accent}, 0.56);"`;
+    }
     function setStatus(text, mode) { els.status.textContent = text; els.status.className = 'status-box' + (mode ? ' ' + mode : ''); }
     function setBusy(value) {
       busy = value;
@@ -697,7 +723,7 @@
     }
     function cardHtml(r) {
       const checked = selectedIds.has(r.id) ? 'checked' : '';
-      return `<article class="task-card ${r.id === selectedId ? 'active' : ''}" data-id="${Number(r.id)}">
+      return `<article class="task-card ${r.id === selectedId ? 'active' : ''}" data-id="${Number(r.id)}" ${creatorColorStyle(r.creator_name)}>
         <div class="task-card-head">
           <div class="task-title">${html(r.title)}</div>
           <input class="task-check" type="checkbox" data-check="${Number(r.id)}" ${checked} aria-label="选择素材" />
@@ -735,7 +761,7 @@
       if (!selectedId && data.length) selectedId = data[0].id;
       els.detailListCount.textContent = `${fmt(data.length)} 条`;
       els.compactList.innerHTML = data.length ? data.map(r => `
-        <div class="compact-card ${r.id === selectedId ? 'active' : ''}" data-compact="${Number(r.id)}">
+        <div class="compact-card ${r.id === selectedId ? 'active' : ''}" data-compact="${Number(r.id)}" ${creatorColorStyle(r.creator_name)}>
           <div class="compact-title">${html(r.title)}</div>
           <div class="task-meta"><span>${html(r.creator_name)}</span><span>${fmt(r.like_count)} 赞</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
         </div>`).join('') : '<div class="empty">暂无任务</div>';
