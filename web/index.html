@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>抖音账号素材采集台</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d100f;
+      --canvas: #111615;
+      --panel: #18201d;
+      --panel-2: #202a26;
+      --panel-3: #0a0d0c;
+      --line: rgba(232, 244, 236, 0.10);
+      --line-strong: rgba(232, 244, 236, 0.20);
+      --text: #edf5f0;
+      --muted: #9fafaa;
+      --muted-2: #71817b;
+      --green: #57d68d;
+      --green-2: #2f8a59;
+      --cyan: #68cfe7;
+      --amber: #f0bd5f;
+      --red: #ff746d;
+      --blue: #9bbcff;
+      --radius-sm: 6px;
+      --radius: 8px;
+      --radius-lg: 12px;
+      --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    button, input, select { font: inherit; }
+    button {
+      min-height: 38px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 0 13px;
+      cursor: pointer;
+      font-weight: 720;
+      white-space: nowrap;
+      transition: border-color 150ms ease, background 150ms ease, transform 120ms ease;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.98); }
+    button:hover:not(:disabled) { border-color: rgba(104, 207, 231, 0.72); }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid rgba(104, 207, 231, 0.66); outline-offset: 2px; }
+    button.primary { border-color: rgba(117, 235, 165, 0.84); background: var(--green-2); color: white; }
+    button.danger { border-color: rgba(255, 116, 109, 0.62); color: #ffd0cc; background: #2b1715; }
+    button.warn { border-color: rgba(240, 189, 95, 0.62); color: #ffe2aa; background: #2a2418; }
+    button.ghost { background: transparent; }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    input, select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-3);
+      color: var(--text);
+      padding: 8px 10px;
+    }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+    a { color: var(--cyan); }
+    .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      min-height: 68px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(13, 16, 15, 0.96);
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(240px, 1fr);
+      align-items: center;
+      gap: 18px;
+      padding: 12px 20px;
+    }
+    .brand h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -0.012em; }
+    .brand p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .tabs { display: flex; gap: 6px; justify-content: center; }
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border-color: transparent;
+      min-height: 36px;
+      padding: 0 14px;
+    }
+    .tab.active { color: var(--text); background: var(--panel-2); border-color: var(--line-strong); }
+    .summary { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.025);
+      color: var(--muted);
+      padding: 3px 8px;
+      font-size: 12px;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .pill b { color: var(--text); }
+    .pill.green { color: #bff3d3; border-color: rgba(87, 214, 141, 0.38); }
+    .pill.cyan { color: #bcf1ff; border-color: rgba(104, 207, 231, 0.40); }
+    .pill.amber { color: #ffdf9a; border-color: rgba(240, 189, 95, 0.42); }
+    .pill.red { color: #ffc9c5; border-color: rgba(255, 116, 109, 0.48); }
+    .content { min-height: 0; }
+    .page { display: none; padding: 18px 20px 28px; }
+    .page.active { display: block; }
+    .page-title { margin: 0 0 14px; font-size: 22px; letter-spacing: -0.012em; }
+    .muted { color: var(--muted); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+    }
+    .panel h2, .panel h3 { margin: 0; letter-spacing: -0.012em; }
+    .panel h2 { font-size: 17px; }
+    .panel h3 { font-size: 15px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .workbench { display: grid; grid-template-rows: auto auto auto; gap: 16px; }
+    .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) repeat(6, minmax(96px, 0.55fr)) auto; gap: 10px; align-items: end; }
+    .harvest-form .category-field { min-width: 140px; }
+    .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); min-height: 38px; margin: 0; }
+    .toggle input { width: 16px; min-height: 16px; }
+    .status-box {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-3);
+      color: var(--muted);
+      min-height: 42px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .status-box.ok { border-color: rgba(87, 214, 141, 0.55); color: #c9f1d9; }
+    .status-box.bad { border-color: rgba(255, 116, 109, 0.62); color: #ffc9c5; }
+    .batch-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; }
+    .batch-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .batch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .preview-list { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 10px; max-height: 182px; overflow: auto; }
+    .preview-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+    .preview-item:first-child { border-top: 0; padding-top: 0; }
+    .preview-title { font-size: 12px; color: var(--text); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .progress { display: grid; gap: 8px; margin-top: 12px; }
+    .progress-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .progress-track { height: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-3); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--cyan)); transition: width 180ms ease; }
+    .status-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .mini-stat { border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,0.025); padding: 12px; min-height: 90px; }
+    .mini-stat span { display: block; color: var(--muted); font-size: 12px; }
+    .mini-stat b { display: block; margin-top: 8px; font-size: 24px; font-variant-numeric: tabular-nums; }
+    .library-shell { display: grid; gap: 14px; }
+    .filter-bar { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(5, minmax(130px, 1fr)); gap: 10px; align-items: end; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .task-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--panel);
+      padding: 14px;
+      cursor: pointer;
+      min-height: 164px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .task-card:hover { border-color: rgba(104, 207, 231, 0.5); }
+    .task-card.active { border-color: rgba(87, 214, 141, 0.78); outline: 1px solid rgba(87, 214, 141, 0.65); }
+    .task-card-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+    .task-check { width: 18px; min-height: 18px; flex: 0 0 auto; margin-top: 2px; }
+    .task-title { font-weight: 780; line-height: 1.45; font-size: 15px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .task-meta { display: flex; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: 12px; }
+    .score { color: var(--green); font-weight: 820; font-variant-numeric: tabular-nums; }
+    .detail-page {
+      display: grid;
+      grid-template-columns: 384px minmax(0, 1fr) 42px;
+      gap: 14px;
+      min-height: calc(100vh - 110px);
+      transition: grid-template-columns 180ms ease;
+    }
+    .detail-page.left-collapsed { grid-template-columns: 42px minmax(0, 1fr) 42px; }
+    .detail-page.right-open { grid-template-columns: 384px minmax(0, 1fr) 330px; }
+    .detail-page.left-collapsed.right-open { grid-template-columns: 42px minmax(0, 1fr) 330px; }
+    .side-list, .detail-main, .side-panel { min-height: 0; }
+    .side-list, .side-panel { position: sticky; top: 86px; height: calc(100vh - 110px); overflow: auto; }
+    .side-list { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 12px; }
+    .side-list.collapsed, .side-panel.collapsed { padding: 8px; overflow: hidden; }
+    .side-list.collapsed .side-inner, .side-panel.collapsed .side-inner { display: none; }
+    .rail-toggle {
+      width: 100%;
+      min-width: 0;
+      padding: 0;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      min-height: 132px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+    }
+    .side-list:not(.collapsed) .rail-toggle, .side-panel:not(.collapsed) .rail-toggle {
+      writing-mode: horizontal-tb;
+      min-height: 34px;
+      margin-bottom: 10px;
+    }
+    .side-filters { display: grid; gap: 8px; margin-bottom: 10px; }
+    .compact-list { display: grid; gap: 10px; }
+    .compact-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 13px; cursor: pointer; min-height: 94px; }
+    .compact-card.active { border-color: rgba(87, 214, 141, 0.72); }
+    .compact-title { font-size: 14px; font-weight: 760; line-height: 1.48; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .detail-main { display: grid; gap: 14px; }
+    .hero-detail { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 16px; }
+    .hero-title { margin: 0 0 12px; font-size: 22px; line-height: 1.35; letter-spacing: -0.012em; }
+    .metric-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .metric { border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,0.025); padding: 12px; }
+    .metric span { display: block; color: var(--muted); font-size: 12px; }
+    .metric b { display: block; margin-top: 6px; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .block { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 16px; }
+    .block-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .block-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .collapse-toggle { min-height: 32px; padding: 0 10px; color: var(--muted); }
+    .block.collapsed .collapsible-body { display: none; }
+    .block h3 { margin: 0; font-size: 16px; }
+    .text-box { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 13px; color: #dfe9e4; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
+    .transcript { font-size: 15px; max-height: 320px; overflow: auto; }
+    .transcript.expanded { max-height: 760px; }
+    .paragraph { padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+    .paragraph:first-child { border-top: 0; padding-top: 0; }
+    .comment-list { display: grid; gap: 8px; }
+    .comment { display: grid; grid-template-columns: 76px 1fr; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 10px; }
+    .comment-likes { color: var(--amber); font-variant-numeric: tabular-nums; }
+    .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .analysis-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 16px; }
+    .analysis-item h4 { margin: 0 0 10px; font-size: 15px; color: var(--cyan); }
+    .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 17px; line-height: 1.92; padding-left: 20px; }
+    .analysis-item.wide { grid-column: 1 / -1; }
+    .side-panel { display: grid; gap: 12px; align-content: start; }
+    .failure-card { border: 1px solid rgba(255, 116, 109, 0.32); border-radius: var(--radius); background: #181311; padding: 12px; display: grid; gap: 8px; }
+    .failure-card strong { line-height: 1.4; }
+    .failure-error { color: #ffc9c5; font-size: 12px; max-height: 92px; overflow: auto; }
+    .failure-actions, .inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .log-box { max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.55; color: #c8d7d0; font-family: var(--mono); }
+    .empty { border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--muted); padding: 26px; text-align: center; line-height: 1.7; }
+    @media (max-width: 1280px) {
+      .harvest-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .batch-layout { grid-template-columns: 1fr; }
+      .batch-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .detail-page, .detail-page.right-open, .detail-page.left-collapsed, .detail-page.left-collapsed.right-open { grid-template-columns: 330px minmax(0, 1fr); }
+      .side-panel { grid-column: 1 / -1; position: static; height: auto; }
+    }
+    @media (max-width: 860px) {
+      .topnav { position: static; grid-template-columns: 1fr; }
+      .tabs, .summary { justify-content: flex-start; flex-wrap: wrap; overflow: visible; }
+      .page { padding: 14px; }
+      .harvest-form, .batch-filters, .filter-bar, .grid-2, .grid-3, .grid-4, .status-strip, .metric-row, .analysis-grid { grid-template-columns: 1fr; }
+      .card-grid { grid-template-columns: 1fr; }
+      .detail-page, .detail-page.right-open, .detail-page.left-collapsed, .detail-page.left-collapsed.right-open { grid-template-columns: 1fr; }
+      .side-list { position: static; height: auto; max-height: 360px; }
+      .side-list.collapsed, .side-panel.collapsed { display: block; height: auto; }
+      .side-list.collapsed .side-inner, .side-panel.collapsed .side-inner { display: none; }
+      .comment { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topnav">
+      <div class="brand">
+        <h1>抖音账号素材采集台</h1>
+        <p>采集、转录、分析和复盘对标账号素材。</p>
+      </div>
+      <nav class="tabs" aria-label="主导航">
+        <button class="tab active" type="button" data-page="workbench">工作台</button>
+        <button class="tab" type="button" data-page="library">数据查看</button>
+        <button class="tab" type="button" data-page="detail">信息页面</button>
+        <button class="tab" type="button" data-page="failures">失败与日志</button>
+      </nav>
+      <div id="summary" class="summary"></div>
+    </header>
+
+    <main class="content">
+      <section id="page-workbench" class="page active">
+        <div class="workbench">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>账号采集</h2>
+                <div class="muted">输入主页链接后，先筛选热门作品，再下载视频和高赞评论。</div>
+              </div>
+              <span class="pill cyan">程序化接口</span>
+            </div>
+            <form id="harvestForm" class="harvest-form">
+              <div>
+                <label for="target">抖音主页链接或 sec_user_id</label>
+                <input id="target" placeholder="https://www.douyin.com/user/MS4w..." required />
+              </div>
+              <div class="category-field">
+                <label for="categoryInput">账号分类</label>
+                <input id="categoryInput" value="未分类" />
+              </div>
+              <div>
+                <label for="pageSize">每页数量</label>
+                <input id="pageSize" type="number" min="1" max="50" value="10" />
+              </div>
+              <div>
+                <label for="maxPages">页数</label>
+                <input id="maxPages" type="number" min="0" max="200" value="1" />
+              </div>
+              <div>
+                <label for="topVideos">点赞 Top N</label>
+                <input id="topVideos" type="number" min="0" max="10000" value="3" />
+              </div>
+              <div>
+                <label for="minLikes">最低点赞数</label>
+                <input id="minLikes" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label for="topComments">评论数</label>
+                <input id="topComments" type="number" min="0" max="50" value="10" />
+              </div>
+              <div>
+                <label class="toggle"><input id="download" type="checkbox" checked /> 下载视频</label>
+              </div>
+              <button id="runButton" class="primary" type="submit">开始采集</button>
+            </form>
+            <div id="status" class="status-box">待命。第一次建议页数设为 1，确认稳定后再扩大范围。</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>批量处理</h2>
+                <div class="muted">批量任务只处理下面筛选出来的候选视频，不会默认处理全库。</div>
+              </div>
+              <span id="batchScope" class="pill">候选 0 条</span>
+            </div>
+            <div class="batch-layout">
+              <div>
+                <div class="batch-filters">
+                  <div>
+                    <label for="batchKeyword">关键词</label>
+                    <input id="batchKeyword" placeholder="标题、账号、评论" />
+                  </div>
+                  <div>
+                    <label for="batchCreator">账号</label>
+                    <select id="batchCreator"><option value="">全部账号</option></select>
+                  </div>
+                  <div>
+                    <label for="batchCategory">分类</label>
+                    <select id="batchCategory"><option value="">全部分类</option></select>
+                  </div>
+                  <div>
+                    <label for="batchStatus">状态</label>
+                    <select id="batchStatus"></select>
+                  </div>
+                  <div>
+                    <label for="batchMinLikes">点赞大于</label>
+                    <input id="batchMinLikes" type="number" min="0" value="0" />
+                  </div>
+                </div>
+                <div class="batch-actions">
+                  <button id="batchTranscribeButton" class="primary" type="button">批量转录候选</button>
+                  <button id="batchAnalyzeButton" type="button">批量分析候选</button>
+                  <button id="batchNoSpeechButton" class="warn" type="button">标记无口播</button>
+                  <button id="batchDeleteButton" class="danger" type="button">删除候选</button>
+                  <button id="refreshButton" class="ghost" type="button">刷新数据</button>
+                </div>
+                <div class="progress">
+                  <div class="progress-meta"><span id="progressLabel">未开始</span><span id="progressCount">0 / 0</span></div>
+                  <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+                  <div class="progress-meta"><span id="progressSuccess">成功 0</span><span id="progressFail">失败 0</span></div>
+                </div>
+              </div>
+              <aside>
+                <div class="panel-head"><h3>本次候选</h3><span id="batchBreakdown" class="pill">0 条</span></div>
+                <div id="batchPreview" class="preview-list"><div class="empty">暂无候选</div></div>
+              </aside>
+            </div>
+          </section>
+
+          <section class="status-strip" id="statusStrip"></section>
+        </div>
+      </section>
+
+      <section id="page-library" class="page">
+        <div class="library-shell">
+          <div class="toolbar">
+            <div>
+              <h2 class="page-title">数据查看</h2>
+              <div class="muted">筛选素材卡片，勾选后可批量处理，点击卡片进入信息页面。</div>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" id="selectVisibleButton">选择当前筛选</button>
+              <button type="button" id="clearSelectionButton" class="ghost">清空选择</button>
+              <button type="button" id="selectedTranscribeButton" class="primary">转录已选</button>
+              <button type="button" id="selectedAnalyzeButton">分析已选</button>
+              <button type="button" id="selectedDeleteButton" class="danger">删除已选</button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="filter-bar">
+              <div>
+                <label for="libKeyword">关键词</label>
+                <input id="libKeyword" placeholder="搜索标题、账号、评论、转录、分析" />
+              </div>
+              <div>
+                <label for="libCreator">账号</label>
+                <select id="libCreator"><option value="">全部账号</option></select>
+              </div>
+              <div>
+                <label for="libCategory">分类</label>
+                <select id="libCategory"><option value="">全部分类</option></select>
+              </div>
+              <div>
+                <label for="libStatus">状态</label>
+                <select id="libStatus"></select>
+              </div>
+              <div>
+                <label for="libMinLikes">点赞大于</label>
+                <input id="libMinLikes" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label for="libSort">排序</label>
+                <select id="libSort">
+                  <option value="score">素材分</option>
+                  <option value="likes">点赞数</option>
+                  <option value="comments">评论数</option>
+                  <option value="updated">更新时间</option>
+                </select>
+              </div>
+            </div>
+          </section>
+          <div class="toolbar"><span id="libraryCount" class="pill">0 条</span><span id="selectedCount" class="pill cyan">已选 0 条</span></div>
+          <section id="cardGrid" class="card-grid"></section>
+        </div>
+      </section>
+
+      <section id="page-detail" class="page">
+        <div id="detailPageGrid" class="detail-page">
+          <aside id="detailSideList" class="side-list">
+            <button id="toggleLeftRail" class="rail-toggle" type="button">收起任务列表</button>
+            <div class="side-inner">
+              <div class="panel-head"><h3>任务列表</h3><span id="detailListCount" class="pill">0 条</span></div>
+              <div class="side-filters">
+                <input id="detailKeyword" placeholder="筛选标题、账号" />
+                <select id="detailCreator"><option value="">全部账号</option></select>
+                <select id="detailCategory"><option value="">全部分类</option></select>
+                <select id="detailStatus"></select>
+              </div>
+              <div id="compactList" class="compact-list"></div>
+            </div>
+          </aside>
+          <section id="detailMain" class="detail-main"><div class="empty">请选择一条素材查看详情。</div></section>
+          <aside id="detailSidePanel" class="side-panel collapsed">
+            <button id="toggleRightRail" class="rail-toggle" type="button">展开任务详情</button>
+            <div class="side-inner">
+              <section class="panel">
+                <div class="panel-head"><h3>当前任务</h3><span id="currentTaskBadge" class="pill">未选择</span></div>
+                <div id="currentTaskPanel" class="text-box">暂无任务</div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><h3>失败任务</h3><button id="refreshFailedButton" class="ghost" type="button">刷新</button></div>
+                <div id="failureList"></div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="page-failures" class="page">
+        <div class="grid-2">
+          <section class="panel">
+            <div class="panel-head"><h2>失败任务</h2><button id="refreshFailedButton2" class="ghost" type="button">刷新</button></div>
+            <div id="failureListFull"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h2>运行日志</h2><button id="refreshLogsButton" class="ghost" type="button">刷新</button></div>
+            <pre id="logBox" class="text-box log-box">暂无日志</pre>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    let rows = [];
+    let failedTasks = [];
+    let selectedId = null;
+    let selectedIds = new Set();
+    let currentPage = 'workbench';
+    let busy = false;
+    let leftRailCollapsed = false;
+    let rightRailOpen = false;
+    const collapsedBlocks = new Set(['transcript']);
+
+    const statusOptions = [
+      ['','全部状态'], ['harvested','已采集'], ['downloaded','已下载'], ['transcribed','已转录'],
+      ['analyzed','已分析'], ['no_speech','无口播'], ['failed','失败'], ['ignored','已忽略']
+    ];
+    const els = {};
+    function bind() {
+      for (const id of [
+        'summary','harvestForm','target','categoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','runButton','status','refreshButton',
+        'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
+        'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
+        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
+        'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailCreator','detailCategory','detailStatus','detailListCount','compactList','detailMain','currentTaskBadge','currentTaskPanel',
+        'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox'
+      ]) els[id] = document.getElementById(id);
+    }
+    function fmt(n) {
+      if (n === null || n === undefined || n === '') return '-';
+      const x = Number(n);
+      return Number.isFinite(x) ? x.toLocaleString('zh-CN') : String(n);
+    }
+    function safe(v) { return v === null || v === undefined || v === '' ? '暂无' : String(v); }
+    function html(v) { return safe(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function setStatus(text, mode) { els.status.textContent = text; els.status.className = 'status-box' + (mode ? ' ' + mode : ''); }
+    function setBusy(value) {
+      busy = value;
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton']) {
+        if (els[id]) els[id].disabled = value;
+      }
+    }
+    function updateProgress(label, done, total, success, fail) {
+      els.progressLabel.textContent = label;
+      els.progressCount.textContent = `${done} / ${total}`;
+      els.progressSuccess.textContent = `成功 ${success}`;
+      els.progressFail.textContent = `失败 ${fail}`;
+      els.progressFill.style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
+    }
+    function statusText(r) {
+      const s = r.status || '';
+      if (s === 'no_speech') return '无口播';
+      if (s === 'ignored') return '已忽略';
+      if (s.includes('failed')) return '失败';
+      if (r.analysis_text) return '已分析';
+      if (r.transcript_text) return '已转录';
+      if (r.media_path) return '已下载';
+      return s || '已采集';
+    }
+    function statusClass(r) {
+      const text = statusText(r);
+      if (text === '失败') return 'red';
+      if (text === '无口播') return 'amber';
+      if (text === '已分析') return 'green';
+      if (text === '已转录' || text === '已下载') return 'cyan';
+      return '';
+    }
+    function rowText(r) {
+      const comments = (r.top_comments || []).map(c => c.content).join('\n');
+      return [r.title, r.description, r.creator_name, r.category, comments, r.transcript_text, r.analysis_text, r.status].join('\n').toLowerCase();
+    }
+    async function requestJson(url, options) {
+      const res = await fetch(url, options);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+    async function loadLibrary() {
+      const res = await fetch('/api/library?ts=' + Date.now());
+      if (!res.ok) throw new Error('素材库加载失败：HTTP ' + res.status);
+      rows = await res.json();
+      if (!selectedId && rows.length) selectedId = rows[0].id;
+      selectedIds = new Set([...selectedIds].filter(id => rows.some(r => r.id === id)));
+      fillSelects();
+      renderAll();
+    }
+    async function loadFailedTasks() {
+      const res = await fetch('/api/failed-tasks?ts=' + Date.now());
+      if (!res.ok) throw new Error('失败任务加载失败：HTTP ' + res.status);
+      failedTasks = await res.json();
+      renderFailures();
+      renderSummary();
+    }
+    async function loadLogs() {
+      const data = await requestJson('/api/logs?limit=140');
+      els.logBox.textContent = data.logs && data.logs.length ? data.logs.join('\n') : '暂无日志';
+    }
+    async function loadAll() {
+      await loadLibrary();
+      await loadFailedTasks();
+      await loadLogs();
+    }
+    function fillStatusSelect(select) {
+      const old = select.value;
+      select.innerHTML = '';
+      for (const [value, label] of statusOptions) {
+        const opt = document.createElement('option'); opt.value = value; opt.textContent = label; select.appendChild(opt);
+      }
+      select.value = statusOptions.some(x => x[0] === old) ? old : '';
+    }
+    function fillSelect(select, values, allLabel) {
+      const old = select.value;
+      select.innerHTML = `<option value="">${allLabel}</option>`;
+      for (const v of values) { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; select.appendChild(opt); }
+      select.value = values.includes(old) ? old : '';
+    }
+    function fillSelects() {
+      const creators = [...new Set(rows.map(r => r.creator_name).filter(Boolean))].sort();
+      const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
+      for (const id of ['batchCreator','libCreator','detailCreator']) fillSelect(els[id], creators, '全部账号');
+      for (const id of ['batchCategory','libCategory','detailCategory']) fillSelect(els[id], cats, '全部分类');
+      for (const id of ['batchStatus','libStatus','detailStatus']) fillStatusSelect(els[id]);
+    }
+    function matchesStatus(r, value) {
+      if (!value) return true;
+      const s = r.status || '';
+      if (value === 'failed') return s.includes('failed');
+      if (value === 'transcribed') return Boolean(r.transcript_text) && !r.analysis_text && s !== 'no_speech';
+      if (value === 'analyzed') return Boolean(r.analysis_text);
+      if (value === 'downloaded') return Boolean(r.media_path) && !r.transcript_text && !s.includes('failed') && s !== 'no_speech';
+      if (value === 'harvested') return !r.media_path && !r.transcript_text && !s.includes('failed');
+      return s === value;
+    }
+    function applyFilters(source, prefix) {
+      const keyword = (els[prefix + 'Keyword']?.value || '').trim().toLowerCase();
+      const creator = els[prefix + 'Creator']?.value || '';
+      const category = els[prefix + 'Category']?.value || '';
+      const status = els[prefix + 'Status']?.value || '';
+      const minLikes = Number(els[prefix + 'MinLikes']?.value || 0);
+      return source.filter(r => {
+        return (!creator || r.creator_name === creator)
+          && (!category || r.category === category)
+          && matchesStatus(r, status)
+          && (Number(r.like_count || 0) >= minLikes)
+          && (!keyword || rowText(r).includes(keyword));
+      });
+    }
+    function batchCandidates() { return applyFilters(rows, 'batch').sort(sortByScore); }
+    function libraryRows() {
+      const data = applyFilters(rows, 'lib');
+      const sort = els.libSort.value;
+      return data.sort((a, b) => {
+        if (sort === 'likes') return Number(b.like_count || 0) - Number(a.like_count || 0);
+        if (sort === 'comments') return Number(b.comment_count || 0) - Number(a.comment_count || 0);
+        if (sort === 'updated') return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        return sortByScore(a, b);
+      });
+    }
+    function detailRows() { return applyFilters(rows, 'detail').sort(sortByScore); }
+    function sortByScore(a, b) { return Number(b.score || 0) - Number(a.score || 0); }
+    function renderSummary() {
+      const creators = new Set(rows.map(r => r.creator_name).filter(Boolean));
+      const downloaded = rows.filter(r => r.media_path).length;
+      const transcribed = rows.filter(r => r.transcript_text).length;
+      const analyzed = rows.filter(r => r.analysis_text).length;
+      const noSpeech = rows.filter(r => r.status === 'no_speech').length;
+      els.summary.innerHTML = `
+        <span class="pill">账号 <b>${fmt(creators.size)}</b></span>
+        <span class="pill">视频 <b>${fmt(rows.length)}</b></span>
+        <span class="pill cyan">已下载 <b>${fmt(downloaded)}</b></span>
+        <span class="pill cyan">已转录 <b>${fmt(transcribed)}</b></span>
+        <span class="pill green">已分析 <b>${fmt(analyzed)}</b></span>
+        <span class="pill amber">无口播 <b>${fmt(noSpeech)}</b></span>
+        <span class="pill red">失败 <b>${fmt(failedTasks.length)}</b></span>`;
+    }
+    function renderStatusStrip() {
+      const stats = [
+        ['总素材', rows.length, ''], ['可转录', rows.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech').length, 'cyan'],
+        ['可分析', rows.filter(r => r.transcript_text && !r.analysis_text).length, 'cyan'], ['已分析', rows.filter(r => r.analysis_text).length, 'green'],
+        ['无口播', rows.filter(r => r.status === 'no_speech').length, 'amber'], ['失败任务', failedTasks.length, 'red']
+      ];
+      els.statusStrip.innerHTML = stats.map(([label, value, cls]) => `<div class="mini-stat"><span>${label}</span><b class="${cls ? 'pill ' + cls : ''}">${fmt(value)}</b></div>`).join('');
+    }
+    function renderBatch() {
+      const data = batchCandidates();
+      const canTranscribe = data.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech');
+      const canAnalyze = data.filter(r => r.transcript_text && !r.analysis_text);
+      els.batchScope.textContent = `候选 ${fmt(data.length)} 条`;
+      els.batchBreakdown.textContent = `转录 ${fmt(canTranscribe.length)} / 分析 ${fmt(canAnalyze.length)}`;
+      els.batchPreview.innerHTML = data.length ? data.slice(0, 12).map(r => `
+        <div class="preview-item"><div><div class="preview-title">${html(r.title)}</div><div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(statusText(r))}</span></div></div><span class="score">${fmt(r.like_count)}</span></div>
+      `).join('') : '<div class="empty">暂无候选</div>';
+    }
+    function cardHtml(r) {
+      const checked = selectedIds.has(r.id) ? 'checked' : '';
+      return `<article class="task-card ${r.id === selectedId ? 'active' : ''}" data-id="${Number(r.id)}">
+        <div class="task-card-head">
+          <div class="task-title">${html(r.title)}</div>
+          <input class="task-check" type="checkbox" data-check="${Number(r.id)}" ${checked} aria-label="选择素材" />
+        </div>
+        <div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>赞 ${fmt(r.like_count)}</span><span>评 ${fmt(r.comment_count)}</span></div>
+        <div class="task-meta"><span class="score">${fmt(r.score)}</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
+        <div class="inline-actions">
+          <button type="button" data-open="${Number(r.id)}">查看</button>
+          <button type="button" data-transcribe="${Number(r.id)}">转录</button>
+          <button type="button" data-analyze="${Number(r.id)}">分析</button>
+          <button class="danger" type="button" data-delete="${Number(r.id)}">删除</button>
+        </div>
+      </article>`;
+    }
+    function renderLibrary() {
+      const data = libraryRows();
+      els.libraryCount.textContent = `${fmt(data.length)} 条`;
+      els.selectedCount.textContent = `已选 ${fmt(selectedIds.size)} 条`;
+      els.cardGrid.innerHTML = data.length ? data.map(cardHtml).join('') : '<div class="empty">暂无素材</div>';
+      for (const card of els.cardGrid.querySelectorAll('.task-card')) {
+        card.onclick = event => {
+          const target = event.target;
+          if (target.matches('button,input')) return;
+          openDetail(Number(card.dataset.id));
+        };
+      }
+      for (const input of els.cardGrid.querySelectorAll('[data-check]')) {
+        input.onclick = event => event.stopPropagation();
+        input.onchange = () => { const id = Number(input.dataset.check); input.checked ? selectedIds.add(id) : selectedIds.delete(id); renderLibrary(); };
+      }
+      bindCardButtons(els.cardGrid);
+    }
+    function renderCompactList() {
+      const data = detailRows();
+      if (!selectedId && data.length) selectedId = data[0].id;
+      els.detailListCount.textContent = `${fmt(data.length)} 条`;
+      els.compactList.innerHTML = data.length ? data.map(r => `
+        <div class="compact-card ${r.id === selectedId ? 'active' : ''}" data-compact="${Number(r.id)}">
+          <div class="compact-title">${html(r.title)}</div>
+          <div class="task-meta"><span>${html(r.creator_name)}</span><span>${fmt(r.like_count)} 赞</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
+        </div>`).join('') : '<div class="empty">暂无任务</div>';
+      for (const item of els.compactList.querySelectorAll('[data-compact]')) item.onclick = () => { selectedId = Number(item.dataset.compact); renderDetail(); };
+      renderDetail();
+    }
+    function transcriptParagraphs(text) {
+      if (!text) return '<div class="muted">暂无转录文本</div>';
+      const parts = String(text).split(/[。！？\n]+/).map(x => x.trim()).filter(Boolean);
+      return (parts.length ? parts : [text]).map((p, i) => `<div class="paragraph"><span class="pill">${i + 1}</span> ${html(p)}${/[。！？]$/.test(p) ? '' : '。'}</div>`).join('');
+    }
+    function parseAnalysis(r) {
+      try { return r.analysis_json ? JSON.parse(r.analysis_json) : JSON.parse(r.analysis_text || '{}'); } catch (_) { return null; }
+    }
+    function renderValue(value) {
+      if (Array.isArray(value)) return `<ul>${value.map(v => typeof v === 'object' ? `<li>${html(JSON.stringify(v, null, 2))}</li>` : `<li>${html(v)}</li>`).join('')}</ul>`;
+      if (value && typeof value === 'object') return `<p>${html(JSON.stringify(value, null, 2))}</p>`;
+      return `<p>${html(value || '暂无')}</p>`;
+    }
+    function analysisBlocks(r) {
+      const parsed = parseAnalysis(r);
+      if (!parsed) return `<div class="text-box">${html(r.analysis_text)}</div>`;
+      const map = [
+        ['topic_summary','主题总结'], ['hook','爆点钩子'], ['content_structure','内容结构'], ['viral_factors','爆款因素'],
+        ['audience_focus','用户关注点'], ['live_talking_points','直播可聊点'], ['usable_quotes','可复用话术'], ['risk_notes','风险提示']
+      ];
+      return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${renderValue(parsed[key])}</div>`).join('')}</div>`;
+    }
+    function blockShell(id, title, actions, body) {
+      const collapsed = collapsedBlocks.has(id);
+      const toggleText = collapsed ? '展开' : '收起';
+      return `<section class="block ${collapsed ? 'collapsed' : ''}" data-block="${id}">
+        <div class="block-head">
+          <h3>${title}</h3>
+          <div class="block-actions">
+            ${actions || ''}
+            <button class="collapse-toggle" type="button" data-toggle-block="${id}">${toggleText}</button>
+          </div>
+        </div>
+        <div class="collapsible-body">${body}</div>
+      </section>`;
+    }
+    function renderDetail() {
+      const r = rows.find(x => x.id === selectedId);
+      if (!r) { els.detailMain.innerHTML = '<div class="empty">请选择一条素材查看详情。</div>'; return; }
+      document.querySelectorAll('[data-compact]').forEach(x => x.classList.toggle('active', Number(x.dataset.compact) === selectedId));
+      const comments = (r.top_comments || []).map(c => `<div class="comment"><div class="comment-likes">${fmt(c.like_count)} 赞</div><div>${html(c.content)}</div></div>`).join('');
+      const actionsBlock = `<div class="text-box">视频 ID：${fmt(r.id)}\n来源：${html(r.source_url)}\n视频：${html(r.media_path)}\n音频：${html(r.audio_path)}</div>`;
+      const analysisBlock = analysisBlocks(r);
+      const commentsBlock = `<div class="comment-list">${comments || '<div class="muted">暂无评论</div>'}</div>`;
+      const transcriptBlock = `<div id="transcriptText" class="text-box transcript">${transcriptParagraphs(r.transcript_text)}</div>`;
+      els.detailMain.innerHTML = `
+        <section class="hero-detail">
+          <div class="panel-head"><div><h2 class="hero-title">${html(r.title)}</h2><div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>${html(r.published_at)}</span></div></div><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
+          <div class="metric-row"><div class="metric"><span>素材分</span><b>${fmt(r.score)}</b></div><div class="metric"><span>点赞</span><b>${fmt(r.like_count)}</b></div><div class="metric"><span>评论</span><b>${fmt(r.comment_count)}</b></div><div class="metric"><span>收藏</span><b>${fmt(r.favorite_count)}</b></div><div class="metric"><span>转发</span><b>${fmt(r.repost_count)}</b></div></div>
+        </section>
+        ${blockShell('actions', '操作', `<div class="inline-actions"><button type="button" data-transcribe="${Number(r.id)}">转录</button><button class="primary" type="button" data-analyze="${Number(r.id)}">AI 分析</button><button class="warn" type="button" data-nospeech="${Number(r.id)}">标记无口播</button><button class="danger" type="button" data-delete="${Number(r.id)}">删除</button></div>`, actionsBlock)}
+        ${blockShell('analysis', 'AI 爆款分析', '<button type="button" data-copy="analysis">复制分析</button>', analysisBlock)}
+        ${blockShell('comments', '高赞评论', `<span class="pill">${fmt((r.top_comments || []).length)} 条</span>`, commentsBlock)}
+        ${blockShell('transcript', '转录文本', '<button type="button" data-copy="transcript">复制文本</button>', transcriptBlock)}`;
+      els.currentTaskBadge.textContent = statusText(r);
+      els.currentTaskPanel.textContent = `账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
+      bindCardButtons(els.detailMain);
+      for (const btn of els.detailMain.querySelectorAll('[data-copy]')) btn.onclick = () => copyCurrent(btn.dataset.copy);
+      for (const btn of els.detailMain.querySelectorAll('[data-toggle-block]')) btn.onclick = () => toggleBlock(btn.dataset.toggleBlock);
+    }
+    function renderFailures() {
+      const failureHtml = failedTasks.length ? failedTasks.map(task => `
+        <div class="failure-card"><strong>${html(taskLabel(task.task_type))}：${html(task.title || task.payload?.target || '未命名任务')}</strong><div class="task-meta"><span>${html(task.creator_name || '未入库账号')}</span><span>视频 ID ${html(task.video_id || task.payload?.video_id || '-')}</span></div><div class="failure-error">${html(task.error)}</div><div class="failure-actions"><button class="warn" type="button" data-retry-fail="${Number(task.id)}">手动重试</button><button type="button" data-nospeech-fail="${Number(task.id)}">标记无口播</button><button class="ghost" type="button" data-ignore-fail="${Number(task.id)}">忽略</button></div></div>`).join('') : '<div class="empty">暂无失败任务</div>';
+      els.failureList.innerHTML = failureHtml;
+      els.failureListFull.innerHTML = failureHtml;
+      for (const root of [els.failureList, els.failureListFull]) {
+        for (const btn of root.querySelectorAll('[data-retry-fail]')) btn.onclick = () => retryFailedTask(failedTasks.find(t => t.id === Number(btn.dataset.retryFail)));
+        for (const btn of root.querySelectorAll('[data-ignore-fail]')) btn.onclick = () => ignoreFailedTask(Number(btn.dataset.ignoreFail));
+        for (const btn of root.querySelectorAll('[data-nospeech-fail]')) btn.onclick = () => markFailedNoSpeech(Number(btn.dataset.nospeechFail));
+      }
+    }
+    function renderAll() { renderSummary(); renderStatusStrip(); renderBatch(); renderLibrary(); renderCompactList(); }
+    function renderRails() {
+      els.detailPageGrid.classList.toggle('left-collapsed', leftRailCollapsed);
+      els.detailPageGrid.classList.toggle('right-open', rightRailOpen);
+      els.detailSideList.classList.toggle('collapsed', leftRailCollapsed);
+      els.detailSidePanel.classList.toggle('collapsed', !rightRailOpen);
+      els.toggleLeftRail.textContent = leftRailCollapsed ? '展开任务列表' : '收起任务列表';
+      els.toggleRightRail.textContent = rightRailOpen ? '收起任务详情' : '展开任务详情';
+    }
+    function toggleBlock(id) {
+      collapsedBlocks.has(id) ? collapsedBlocks.delete(id) : collapsedBlocks.add(id);
+      renderDetail();
+    }
+    function switchPage(page) {
+      currentPage = page;
+      document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === page));
+      if (page === 'detail') {
+        renderRails();
+        renderCompactList();
+      }
+    }
+    function openDetail(id) { selectedId = id; switchPage('detail'); renderAll(); }
+    function bindCardButtons(root) {
+      for (const btn of root.querySelectorAll('[data-open]')) btn.onclick = e => { e.stopPropagation(); openDetail(Number(btn.dataset.open)); };
+      for (const btn of root.querySelectorAll('[data-transcribe]')) btn.onclick = e => { e.stopPropagation(); transcribeVideo(Number(btn.dataset.transcribe)); };
+      for (const btn of root.querySelectorAll('[data-analyze]')) btn.onclick = e => { e.stopPropagation(); analyzeVideo(Number(btn.dataset.analyze)); };
+      for (const btn of root.querySelectorAll('[data-delete]')) btn.onclick = e => { e.stopPropagation(); deleteVideoAction(Number(btn.dataset.delete)); };
+      for (const btn of root.querySelectorAll('[data-nospeech]')) btn.onclick = e => { e.stopPropagation(); updateVideoStatus(Number(btn.dataset.nospeech), 'no_speech'); };
+    }
+    async function postTask(type, videoId) {
+      return requestJson(type === 'transcribe' ? '/api/transcribe' : '/api/analyze', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId}) });
+    }
+    async function transcribeVideo(videoId) { await runSingle('transcribe', videoId); }
+    async function analyzeVideo(videoId) { await runSingle('analyze', videoId); }
+    async function runSingle(type, videoId) {
+      setBusy(true); setStatus(type === 'transcribe' ? '转录中：正在提交豆包语音 ASR。' : 'AI 分析中：正在等待豆包模型返回。');
+      try { await postTask(type, videoId); setStatus(type === 'transcribe' ? '转录完成。' : 'AI 分析完成。', 'ok'); }
+      catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { await loadAll(); setBusy(false); }
+    }
+    async function runBatch(type, explicitRows = null) {
+      if (busy) return;
+      const source = explicitRows || batchCandidates();
+      const candidates = source.filter(r => type === 'transcribe' ? r.media_path && !r.transcript_text && r.status !== 'no_speech' : r.transcript_text && !r.analysis_text);
+      if (!candidates.length) { setStatus(type === 'transcribe' ? '没有需要转录的候选视频。' : '没有需要分析的候选视频。'); return; }
+      setBusy(true); let success = 0; let fail = 0; updateProgress(type === 'transcribe' ? '批量转录' : '批量分析', 0, candidates.length, 0, 0);
+      for (let i = 0; i < candidates.length; i += 1) {
+        const row = candidates[i]; setStatus(`${type === 'transcribe' ? '转录' : '分析'}：${row.creator_name || ''} #${row.id}`);
+        try { await postTask(type, row.id); success += 1; } catch (_) { fail += 1; }
+        updateProgress(row.title || `#${row.id}`, i + 1, candidates.length, success, fail);
+      }
+      await loadAll(); setStatus(`批量任务完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok'); setBusy(false);
+    }
+    async function updateVideoStatus(videoId, status) {
+      try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, status}) }); await loadAll(); setStatus('状态已更新。', 'ok'); }
+      catch (error) { setStatus(String(error.message || error), 'bad'); }
+    }
+    async function deleteVideoAction(videoId) {
+      const row = rows.find(r => r.id === videoId);
+      const deleteFiles = confirm(`确认删除「${row?.title || videoId}」吗？\n\n点击“确定”只删除数据库记录。\n如需同时删除本地文件，请下一步确认。`);
+      if (!deleteFiles) return;
+      const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？\n选择“取消”则只删除数据库记录。');
+      try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) }); selectedIds.delete(videoId); if (selectedId === videoId) selectedId = null; await loadAll(); setStatus('视频已删除。', 'ok'); }
+      catch (error) { setStatus(String(error.message || error), 'bad'); }
+    }
+    async function deleteRows(data) {
+      if (!data.length) return;
+      if (!confirm(`确认删除 ${data.length} 条素材吗？`)) return;
+      const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？');
+      setBusy(true); let success = 0; let fail = 0;
+      for (const row of data) { try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } }
+      selectedIds.clear(); await loadAll(); setBusy(false); setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+    }
+    async function markRowsNoSpeech(data) {
+      if (!data.length) return;
+      if (!confirm(`确认把 ${data.length} 条候选素材标记为无口播？`)) return;
+      setBusy(true); let success = 0; let fail = 0;
+      for (const row of data) { try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, status: 'no_speech'}) }); success += 1; } catch (_) { fail += 1; } }
+      await loadAll(); setBusy(false); setStatus(`标记完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+    }
+    function selectedRows() { return rows.filter(r => selectedIds.has(r.id)); }
+    async function retryFailedTask(task) {
+      if (!task || busy) return; setBusy(true); setStatus(`手动重试：${taskLabel(task.task_type)}`);
+      try {
+        if (task.task_type === 'harvest') await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(task.payload || {}) });
+        else if (task.task_type === 'transcribe') await postTask('transcribe', task.video_id || task.payload?.video_id);
+        else if (task.task_type === 'analyze') await postTask('analyze', task.video_id || task.payload?.video_id);
+        setStatus('手动重试成功。', 'ok');
+      } catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { await loadAll(); setBusy(false); }
+    }
+    async function ignoreFailedTask(taskId) {
+      try { await requestJson('/api/failed-tasks/ignore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({task_id: taskId}) }); await loadAll(); }
+      catch (error) { setStatus(String(error.message || error), 'bad'); }
+    }
+    async function markFailedNoSpeech(taskId) {
+      const task = failedTasks.find(t => t.id === taskId);
+      const videoId = task?.video_id || task?.payload?.video_id;
+      if (!videoId) { setStatus('失败任务缺少视频 ID，无法标记无口播。', 'bad'); return; }
+      await updateVideoStatus(videoId, 'no_speech');
+      await ignoreFailedTask(taskId);
+    }
+    function taskLabel(type) { return {harvest: '账号采集', transcribe: '视频转录', analyze: 'AI 分析'}[type] || type; }
+    function copyCurrent(kind) {
+      const r = rows.find(x => x.id === selectedId); if (!r) return;
+      const text = kind === 'analysis' ? (r.analysis_text || '') : (r.transcript_text || '');
+      navigator.clipboard?.writeText(text); setStatus('内容已复制。', 'ok');
+    }
+    function attachEvents() {
+      document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
+      els.harvestForm.addEventListener('submit', async event => {
+        event.preventDefault(); setBusy(true); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
+        const payload = { target: els.target.value.trim(), category: els.categoryInput.value.trim() || '未分类', page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
+        try { const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }); const fetched = data.result.fetched_video_count ?? data.result.video_count; setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok'); await loadAll(); }
+        catch (error) { setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
+        finally { setBusy(false); }
+      });
+      for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
+      for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
+      for (const id of ['detailKeyword','detailCreator','detailCategory','detailStatus']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
+      els.batchTranscribeButton.onclick = () => runBatch('transcribe');
+      els.batchAnalyzeButton.onclick = () => runBatch('analyze');
+      els.batchNoSpeechButton.onclick = () => markRowsNoSpeech(batchCandidates());
+      els.batchDeleteButton.onclick = () => deleteRows(batchCandidates());
+      els.refreshButton.onclick = () => loadAll().catch(e => setStatus(e.message, 'bad'));
+      els.selectVisibleButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
+      els.clearSelectionButton.onclick = () => { selectedIds.clear(); renderLibrary(); };
+      els.selectedTranscribeButton.onclick = () => runBatch('transcribe', selectedRows());
+      els.selectedAnalyzeButton.onclick = () => runBatch('analyze', selectedRows());
+      els.selectedDeleteButton.onclick = () => deleteRows(selectedRows());
+      els.refreshFailedButton.onclick = () => loadFailedTasks().catch(e => setStatus(e.message, 'bad'));
+      els.refreshFailedButton2.onclick = () => loadFailedTasks().catch(e => setStatus(e.message, 'bad'));
+      els.refreshLogsButton.onclick = () => loadLogs().catch(e => setStatus(e.message, 'bad'));
+      els.toggleLeftRail.onclick = () => { leftRailCollapsed = !leftRailCollapsed; renderRails(); };
+      els.toggleRightRail.onclick = () => { rightRailOpen = !rightRailOpen; renderRails(); };
+    }
+    bind();
+    attachEvents();
+    renderRails();
+    const initialPage = new URLSearchParams(location.search).get('page');
+    if (['workbench', 'library', 'detail', 'failures'].includes(initialPage)) switchPage(initialPage);
+    loadAll().catch(e => setStatus(e.message, 'bad'));
+  </script>
+</body>
+</html>

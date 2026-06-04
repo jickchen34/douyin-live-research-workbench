@@ -1,0 +1,9 @@
+.env
+.DS_Store
+.venv*/
+__pycache__/
+*.pyc
+data/
+logs/
+web/library.json
+external/Douyin_TikTok_Download_API/
