@@ -275,15 +275,14 @@
     .talking-row { display: grid; gap: 6px; }
     .talking-tag {
       width: max-content;
-      border: 1px solid rgba(104, 207, 231, 0.36);
       border-radius: 999px;
-      background: rgba(104, 207, 231, 0.08);
-      color: #bcf1ff;
       padding: 3px 8px;
       font-size: 12px;
       line-height: 1.2;
       font-weight: 760;
     }
+    .talking-tag.topic { border: 1px solid rgba(104, 207, 231, 0.38); background: rgba(104, 207, 231, 0.08); color: #bcf1ff; }
+    .talking-tag.viewpoint { border: 1px solid rgba(240, 189, 95, 0.42); background: rgba(240, 189, 95, 0.10); color: #ffdf9a; }
     .talking-title { color: #f0f8f4; font-size: 20px; line-height: 1.65; font-weight: 780; }
     .talking-note { color: #dfe9e4; font-size: 19px; line-height: 2.05; }
     .analysis-item.wide { grid-column: 1 / -1; }
@@ -834,8 +833,8 @@
         const title = item.title || item.topic || item.name || '未命名话题';
         const notes = item.talking_notes || item.notes || item.viewpoint || item.point || '暂无观点';
         return `<div class="talking-point">
-          <div class="talking-row"><span class="talking-tag">主题</span><div class="talking-title">${html(title)}</div></div>
-          <div class="talking-row"><span class="talking-tag">观点</span><div class="talking-note">${html(notes)}</div></div>
+          <div class="talking-row"><span class="talking-tag topic">主题</span><div class="talking-title">${html(title)}</div></div>
+          <div class="talking-row"><span class="talking-tag viewpoint">观点</span><div class="talking-note">${html(notes)}</div></div>
         </div>`;
       }).join('')}</div>`;
     }
