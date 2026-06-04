@@ -263,6 +263,29 @@
     .analysis-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 16px; }
     .analysis-item h4 { margin: 0 0 10px; font-size: 15px; color: var(--cyan); }
     .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 19px; line-height: 2.05; padding-left: 20px; }
+    .talking-point-list { display: grid; gap: 12px; margin: 0; padding: 0; }
+    .talking-point {
+      border: 1px solid rgba(104, 207, 231, 0.18);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.026);
+      padding: 13px;
+      display: grid;
+      gap: 10px;
+    }
+    .talking-row { display: grid; gap: 6px; }
+    .talking-tag {
+      width: max-content;
+      border: 1px solid rgba(104, 207, 231, 0.36);
+      border-radius: 999px;
+      background: rgba(104, 207, 231, 0.08);
+      color: #bcf1ff;
+      padding: 3px 8px;
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 760;
+    }
+    .talking-title { color: #f0f8f4; font-size: 20px; line-height: 1.65; font-weight: 780; }
+    .talking-note { color: #dfe9e4; font-size: 19px; line-height: 2.05; }
     .analysis-item.wide { grid-column: 1 / -1; }
     .side-panel { display: grid; gap: 12px; align-content: start; }
     .failure-card { border: 1px solid rgba(255, 116, 109, 0.32); border-radius: var(--radius); background: #181311; padding: 12px; display: grid; gap: 8px; }
@@ -804,6 +827,18 @@
       if (value && typeof value === 'object') return `<p>${html(JSON.stringify(value, null, 2))}</p>`;
       return `<p>${html(value || '暂无')}</p>`;
     }
+    function renderTalkingPoints(value) {
+      if (!Array.isArray(value) || !value.length) return '<p>暂无</p>';
+      return `<div class="talking-point-list">${value.map(item => {
+        if (!item || typeof item !== 'object') return `<div class="talking-point"><div class="talking-note">${html(item)}</div></div>`;
+        const title = item.title || item.topic || item.name || '未命名话题';
+        const notes = item.talking_notes || item.notes || item.viewpoint || item.point || '暂无观点';
+        return `<div class="talking-point">
+          <div class="talking-row"><span class="talking-tag">主题</span><div class="talking-title">${html(title)}</div></div>
+          <div class="talking-row"><span class="talking-tag">观点</span><div class="talking-note">${html(notes)}</div></div>
+        </div>`;
+      }).join('')}</div>`;
+    }
     function analysisBlocks(r) {
       const parsed = parseAnalysis(r);
       if (!parsed) return `<div class="text-box">${html(r.analysis_text)}</div>`;
@@ -811,7 +846,7 @@
         ['topic_summary','主题总结'], ['hook','爆点钩子'], ['content_structure','内容结构'], ['viral_factors','爆款因素'],
         ['audience_focus','用户关注点'], ['live_talking_points','直播可聊点'], ['usable_quotes','可复用话术'], ['risk_notes','风险提示']
       ];
-      return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${renderValue(parsed[key])}</div>`).join('')}</div>`;
+      return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${key === 'live_talking_points' ? renderTalkingPoints(parsed[key]) : renderValue(parsed[key])}</div>`).join('')}</div>`;
     }
     function blockShell(id, title, actions, body) {
       const collapsed = collapsedBlocks.has(id);
