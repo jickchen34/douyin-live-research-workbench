@@ -293,6 +293,40 @@
     .failure-actions, .inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .log-box { max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.55; color: #c8d7d0; font-family: var(--mono); }
     .empty { border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--muted); padding: 26px; text-align: center; line-height: 1.7; }
+    .loading-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      background: rgba(5, 8, 7, 0.72);
+      backdrop-filter: blur(3px);
+      cursor: wait;
+    }
+    .loading-mask[hidden] { display: none; }
+    .loading-card {
+      width: min(420px, calc(100vw - 40px));
+      border: 1px solid rgba(104, 207, 231, 0.28);
+      border-radius: var(--radius-lg);
+      background: #121a17;
+      padding: 22px;
+      display: grid;
+      gap: 12px;
+      justify-items: center;
+      text-align: center;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.36);
+    }
+    .loading-spinner {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 3px solid rgba(104, 207, 231, 0.20);
+      border-top-color: var(--cyan);
+      animation: spin 850ms linear infinite;
+    }
+    .loading-title { font-size: 17px; font-weight: 820; }
+    .loading-text { color: var(--muted); line-height: 1.65; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 1280px) {
       .harvest-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .batch-layout { grid-template-columns: 1fr; }
@@ -534,6 +568,13 @@
       </section>
     </main>
   </div>
+  <div id="loadingMask" class="loading-mask" hidden aria-live="polite" aria-busy="true">
+    <div class="loading-card">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <div class="loading-title">任务处理中</div>
+      <div id="loadingText" class="loading-text">请稍候，当前操作完成前请不要重复点击。</div>
+    </div>
+  </div>
 
   <script>
     let rows = [];
@@ -560,7 +601,7 @@
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
         'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailCreator','detailCategory','detailStatus','detailListCount','compactList','detailMain','currentTaskBadge','currentTaskPanel',
-        'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox'
+        'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText'
       ]) els[id] = document.getElementById(id);
     }
     function fmt(n) {
@@ -607,9 +648,15 @@
       const color = creatorColorMap.get(key) || colorFromHue(191);
       return `style="--creator-bg: ${color.bg}; --creator-border: ${color.border}; --creator-accent: ${color.accent};"`;
     }
-    function setStatus(text, mode) { els.status.textContent = text; els.status.className = 'status-box' + (mode ? ' ' + mode : ''); }
+    function setStatus(text, mode) {
+      els.status.textContent = text;
+      els.status.className = 'status-box' + (mode ? ' ' + mode : '');
+      if (busy && els.loadingText) els.loadingText.textContent = text || '请稍候，当前操作完成前请不要重复点击。';
+    }
     function setBusy(value) {
       busy = value;
+      if (els.loadingMask) els.loadingMask.hidden = !value;
+      if (value && els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
       for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton']) {
         if (els[id]) els[id].disabled = value;
       }
@@ -935,7 +982,10 @@
       setBusy(true); setStatus(type === 'transcribe' ? '转录中：正在提交豆包语音 ASR。' : 'AI 分析中：正在等待豆包模型返回。');
       try { await postTask(type, videoId); setStatus(type === 'transcribe' ? '转录完成。' : 'AI 分析完成。', 'ok'); }
       catch (error) { setStatus(String(error.message || error), 'bad'); }
-      finally { await loadAll(); setBusy(false); }
+      finally {
+        try { await loadAll(); } catch (error) { setStatus(String(error.message || error), 'bad'); }
+        setBusy(false);
+      }
     }
     async function runBatch(type, explicitRows = null) {
       if (busy) return;
@@ -943,39 +993,52 @@
       const candidates = source.filter(r => type === 'transcribe' ? r.media_path && !r.transcript_text && r.status !== 'no_speech' : r.transcript_text && !r.analysis_text);
       if (!candidates.length) { setStatus(type === 'transcribe' ? '没有需要转录的候选视频。' : '没有需要分析的候选视频。'); return; }
       setBusy(true); let success = 0; let fail = 0; updateProgress(type === 'transcribe' ? '批量转录' : '批量分析', 0, candidates.length, 0, 0);
-      for (let i = 0; i < candidates.length; i += 1) {
-        const row = candidates[i]; setStatus(`${type === 'transcribe' ? '转录' : '分析'}：${row.creator_name || ''} #${row.id}`);
-        try { await postTask(type, row.id); success += 1; } catch (_) { fail += 1; }
-        updateProgress(row.title || `#${row.id}`, i + 1, candidates.length, success, fail);
-      }
-      await loadAll(); setStatus(`批量任务完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok'); setBusy(false);
+      try {
+        for (let i = 0; i < candidates.length; i += 1) {
+          const row = candidates[i]; setStatus(`${type === 'transcribe' ? '转录' : '分析'}：${row.creator_name || ''} #${row.id}`);
+          try { await postTask(type, row.id); success += 1; } catch (_) { fail += 1; }
+          updateProgress(row.title || `#${row.id}`, i + 1, candidates.length, success, fail);
+        }
+        await loadAll(); setStatus(`批量任务完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      } catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { setBusy(false); }
     }
     async function updateVideoStatus(videoId, status) {
+      if (busy) return;
+      setBusy(true); setStatus('状态更新中，请稍候。');
       try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, status}) }); await loadAll(); setStatus('状态已更新。', 'ok'); }
       catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { setBusy(false); }
     }
     async function deleteVideoAction(videoId) {
+      if (busy) return;
       const row = rows.find(r => r.id === videoId);
       const deleteFiles = confirm(`确认删除「${row?.title || videoId}」吗？\n\n点击“确定”只删除数据库记录。\n如需同时删除本地文件，请下一步确认。`);
       if (!deleteFiles) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？\n选择“取消”则只删除数据库记录。');
+      setBusy(true); setStatus('删除素材中，请稍候。');
       try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) }); selectedIds.delete(videoId); if (selectedId === videoId) selectedId = null; await loadAll(); setStatus('视频已删除。', 'ok'); }
       catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { setBusy(false); }
     }
     async function deleteRows(data) {
       if (!data.length) return;
       if (!confirm(`确认删除 ${data.length} 条素材吗？`)) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？');
-      setBusy(true); let success = 0; let fail = 0;
-      for (const row of data) { try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } }
-      selectedIds.clear(); await loadAll(); setBusy(false); setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      setBusy(true); setStatus('批量删除中，请稍候。'); let success = 0; let fail = 0;
+      try {
+        for (const row of data) { setStatus(`删除：${row.creator_name || ''} #${row.id}`); try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } }
+        selectedIds.clear(); await loadAll(); setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      } finally { setBusy(false); }
     }
     async function markRowsNoSpeech(data) {
       if (!data.length) return;
       if (!confirm(`确认把 ${data.length} 条候选素材标记为无口播？`)) return;
-      setBusy(true); let success = 0; let fail = 0;
-      for (const row of data) { try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, status: 'no_speech'}) }); success += 1; } catch (_) { fail += 1; } }
-      await loadAll(); setBusy(false); setStatus(`标记完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      setBusy(true); setStatus('批量标记无口播中，请稍候。'); let success = 0; let fail = 0;
+      try {
+        for (const row of data) { setStatus(`标记无口播：${row.creator_name || ''} #${row.id}`); try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, status: 'no_speech'}) }); success += 1; } catch (_) { fail += 1; } }
+        await loadAll(); setStatus(`标记完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      } finally { setBusy(false); }
     }
     function selectedRows() { return rows.filter(r => selectedIds.has(r.id)); }
     async function retryFailedTask(task) {
@@ -986,11 +1049,17 @@
         else if (task.task_type === 'analyze') await postTask('analyze', task.video_id || task.payload?.video_id);
         setStatus('手动重试成功。', 'ok');
       } catch (error) { setStatus(String(error.message || error), 'bad'); }
-      finally { await loadAll(); setBusy(false); }
+      finally {
+        try { await loadAll(); } catch (error) { setStatus(String(error.message || error), 'bad'); }
+        setBusy(false);
+      }
     }
     async function ignoreFailedTask(taskId) {
+      if (busy) return;
+      setBusy(true); setStatus('忽略失败任务中，请稍候。');
       try { await requestJson('/api/failed-tasks/ignore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({task_id: taskId}) }); await loadAll(); }
       catch (error) { setStatus(String(error.message || error), 'bad'); }
+      finally { setBusy(false); }
     }
     async function markFailedNoSpeech(taskId) {
       const task = failedTasks.find(t => t.id === taskId);
