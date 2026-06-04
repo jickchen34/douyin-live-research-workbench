@@ -413,6 +413,7 @@
                 <label class="toggle"><input id="download" type="checkbox" checked /> 下载视频</label>
               </div>
               <button id="runButton" class="primary" type="submit">开始采集</button>
+              <label class="toggle"><input id="autoProcessAfterHarvest" type="checkbox" /> 转录并分析</label>
             </form>
             <div id="status" class="status-box">待命。第一次建议页数设为 1，确认稳定后再扩大范围。</div>
           </section>
@@ -600,7 +601,7 @@
     const els = {};
     function bind() {
       for (const id of [
-        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','runButton','status','refreshButton',
+        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoProcessAfterHarvest','runButton','status','refreshButton',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
@@ -661,7 +662,7 @@
       busy = value;
       if (els.loadingMask) els.loadingMask.hidden = !value;
       if (value && els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton']) {
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoProcessAfterHarvest']) {
         if (els[id]) els[id].disabled = value;
       }
     }
@@ -1025,6 +1026,38 @@
       } catch (error) { setStatus(String(error.message || error), 'bad'); }
       finally { setBusy(false); }
     }
+    async function autoProcessHarvestedVideos(videoIds) {
+      const idSet = new Set((videoIds || []).map(Number).filter(Number.isFinite));
+      if (!idSet.size) { setStatus('采集完成，但没有本次入库的视频可转录分析。', 'ok'); return; }
+      let transcribeSuccess = 0; let transcribeFail = 0; let analyzeSuccess = 0; let analyzeFail = 0;
+
+      setStatus('采集完成：正在准备本次视频转录。');
+      await loadAll();
+      let scoped = rows.filter(r => idSet.has(Number(r.id)));
+      const transcribeTargets = scoped.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech');
+      updateProgress('采集后自动转录', 0, transcribeTargets.length, 0, 0);
+      for (let i = 0; i < transcribeTargets.length; i += 1) {
+        const row = transcribeTargets[i];
+        setStatus(`自动转录 ${i + 1}/${transcribeTargets.length}：${row.creator_name || ''} #${row.id}`);
+        try { await postTask('transcribe', row.id); transcribeSuccess += 1; } catch (_) { transcribeFail += 1; }
+        updateProgress(row.title || `#${row.id}`, i + 1, transcribeTargets.length, transcribeSuccess, transcribeFail);
+      }
+
+      setStatus('转录阶段完成：正在准备 AI 分析。');
+      await loadAll();
+      scoped = rows.filter(r => idSet.has(Number(r.id)));
+      const analyzeTargets = scoped.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'no_speech');
+      updateProgress('采集后自动分析', 0, analyzeTargets.length, 0, 0);
+      for (let i = 0; i < analyzeTargets.length; i += 1) {
+        const row = analyzeTargets[i];
+        setStatus(`自动分析 ${i + 1}/${analyzeTargets.length}：${row.creator_name || ''} #${row.id}`);
+        try { await postTask('analyze', row.id); analyzeSuccess += 1; } catch (_) { analyzeFail += 1; }
+        updateProgress(row.title || `#${row.id}`, i + 1, analyzeTargets.length, analyzeSuccess, analyzeFail);
+      }
+
+      await loadAll();
+      setStatus(`采集后自动处理完成：转录成功 ${transcribeSuccess} 条、失败 ${transcribeFail} 条；分析成功 ${analyzeSuccess} 条、失败 ${analyzeFail} 条。`, (transcribeFail || analyzeFail) ? 'bad' : 'ok');
+    }
     async function updateVideoStatus(videoId, status) {
       if (busy) return;
       setBusy(true); setStatus('状态更新中，请稍候。');
@@ -1100,8 +1133,16 @@
       document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
       els.harvestForm.addEventListener('submit', async event => {
         event.preventDefault(); setBusy(true); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
+        const shouldAutoProcess = els.autoProcessAfterHarvest.checked;
+        if (shouldAutoProcess) els.download.checked = true;
         const payload = { target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
-        try { const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }); const fetched = data.result.fetched_video_count ?? data.result.video_count; setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok'); await loadAll(); }
+        try {
+          const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+          const fetched = data.result.fetched_video_count ?? data.result.video_count;
+          setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok');
+          await loadAll();
+          if (shouldAutoProcess) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || []);
+        }
         catch (error) { setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
         finally { setBusy(false); }
       });
