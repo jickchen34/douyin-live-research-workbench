@@ -606,7 +606,7 @@
     .status-box.bad { border-color: rgba(182, 67, 53, 0.34); color: #903329; background: #f8e6e1; }
     .wechat-setup {
       display: grid;
-      grid-template-columns: minmax(260px, 1fr) auto auto;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
       gap: 10px;
       align-items: end;
       margin-bottom: 12px;
@@ -822,6 +822,8 @@
                 <label for="wechatBaseUrl">本地视频号 API</label>
                 <input id="wechatBaseUrl" value="http://127.0.0.1:38129" />
               </div>
+              <button id="wechatStartButton" type="button">启动本地服务</button>
+              <button id="wechatStopButton" class="ghost" type="button" disabled>停止服务</button>
               <button id="wechatCheckButton" type="button">检测本地 PC</button>
               <button id="wechatOpenGuideButton" class="ghost" type="button">查看操作提示</button>
             </div>
@@ -1091,7 +1093,7 @@
     function bind() {
       for (const id of [
         'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','runButton','status','refreshButton',
-        'wechatReadyBadge','wechatBaseUrl','wechatCheckButton','wechatOpenGuideButton','wechatStatus','wechatKeyword','wechatSearchButton','wechatUsername','wechatTopVideos','wechatMinLikes','wechatTopComments','wechatHarvestButton','wechatSearchResults','wechatDownload','wechatWaitDownload','wechatTranscribeAfterHarvest','wechatAnalyzeAfterHarvest',
+        'wechatReadyBadge','wechatBaseUrl','wechatStartButton','wechatStopButton','wechatCheckButton','wechatOpenGuideButton','wechatStatus','wechatKeyword','wechatSearchButton','wechatUsername','wechatTopVideos','wechatMinLikes','wechatTopComments','wechatHarvestButton','wechatSearchResults','wechatDownload','wechatWaitDownload','wechatTranscribeAfterHarvest','wechatAnalyzeAfterHarvest',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
@@ -1169,7 +1171,7 @@
         if (els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
         if (!els.loadingProgressLabel?.textContent || els.loadingProgressLabel.textContent === '未开始') resetProgress('准备中');
       }
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton','wechatCheckButton','wechatSearchButton','wechatHarvestButton']) {
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton','wechatStartButton','wechatStopButton','wechatCheckButton','wechatSearchButton','wechatHarvestButton']) {
         if (els[id]) els[id].disabled = value;
       }
       if (!value && currentPage === 'library') renderLibraryCreatorCard();
@@ -1281,10 +1283,14 @@
     }
     function renderWechatControls() {
       const ready = Boolean(wechatStatus.available);
+      const process = wechatStatus.process || {};
+      const managedRunning = Boolean(process.managed && process.running);
       if (els.wechatReadyBadge) {
         els.wechatReadyBadge.textContent = ready ? '本地已连接' : (wechatStatus.ok ? '页面未连接' : '未检测');
         els.wechatReadyBadge.className = 'pill ' + (ready ? 'green' : 'amber');
       }
+      if (els.wechatStartButton) els.wechatStartButton.disabled = busy || ready || managedRunning;
+      if (els.wechatStopButton) els.wechatStopButton.disabled = busy || !managedRunning;
       if (els.wechatSearchButton) els.wechatSearchButton.disabled = busy || !ready;
       if (els.wechatHarvestButton) els.wechatHarvestButton.disabled = busy || !ready || !els.wechatUsername.value.trim();
       if (currentPage === 'library') renderLibraryCreatorCard();
@@ -1292,6 +1298,54 @@
     function setWechatStatus(text, mode) {
       els.wechatStatus.textContent = text;
       els.wechatStatus.className = 'status-box' + (mode ? ' ' + mode : '');
+    }
+    function wechatProcessText(data) {
+      const process = data?.process || {};
+      if (process.managed && process.running) return `控制台已启动服务，PID ${process.pid}，日志：${process.log_path}`;
+      if (process.managed && !process.running) return `控制台启动的服务已退出，退出码 ${process.returncode}，日志：${process.log_path}`;
+      if (process.log_path) return `日志：${process.log_path}`;
+      return '';
+    }
+    async function startWechatService() {
+      if (busy) return;
+      setBusy(true);
+      resetProgress('启动视频号本地服务');
+      setWechatStatus('正在启动 wx_channels_download，本步骤可能需要系统权限确认。');
+      try {
+        const data = await requestJson('/api/wechat-channels/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})});
+        wechatStatus = Object.assign({}, data.status || {ok: false, available: false}, {process: data.process});
+        if (data.already_running) {
+          setWechatStatus(`本地服务已经在运行。${wechatProcessText(data)}`, data.status?.available ? 'ok' : '');
+        } else {
+          setWechatStatus(`已启动本地服务。请打开微信 PC 视频号作者页，等下载按钮出现后点击“检测本地 PC”。${wechatProcessText(data)}`, 'ok');
+        }
+        updateProgress('启动视频号本地服务', 1, 1, 1, 0);
+      } catch (error) {
+        wechatStatus = {ok: false, available: false};
+        updateProgress('启动视频号本地服务', 1, 1, 0, 1);
+        setWechatStatus(`启动失败：${error.message || error}`, 'bad');
+      } finally {
+        setBusy(false);
+        renderWechatControls();
+      }
+    }
+    async function stopWechatService() {
+      if (busy) return;
+      setBusy(true);
+      resetProgress('停止视频号本地服务');
+      setWechatStatus('正在停止由本控制台启动的视频号服务。');
+      try {
+        const data = await requestJson('/api/wechat-channels/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})});
+        wechatStatus = {ok: false, available: false, process: data.process};
+        updateProgress('停止视频号本地服务', 1, 1, data.stopped ? 1 : 0, data.stopped ? 0 : 1);
+        setWechatStatus(data.stopped ? '已停止视频号本地服务。' : (data.message || '没有可停止的控制台启动进程。'), data.stopped ? 'ok' : 'bad');
+      } catch (error) {
+        updateProgress('停止视频号本地服务', 1, 1, 0, 1);
+        setWechatStatus(`停止失败：${error.message || error}`, 'bad');
+      } finally {
+        setBusy(false);
+        renderWechatControls();
+      }
     }
     async function checkWechatChannels() {
       if (busy) return;
@@ -1301,9 +1355,9 @@
         const data = await requestJson('/api/wechat-channels/status?' + params.toString());
         wechatStatus = data;
         if (data.available) {
-          setWechatStatus(`检测通过：本地服务 ${data.base_url} 已连接微信 PC 视频号页面。`, 'ok');
+          setWechatStatus(`检测通过：本地服务 ${data.base_url} 已连接微信 PC 视频号页面。${wechatProcessText(data)}`, 'ok');
         } else {
-          setWechatStatus(`本地服务已启动，但微信 PC 视频号页面未连接：${data.message || '请打开视频号作者页并等待下载按钮出现。'}`, 'bad');
+          setWechatStatus(`本地服务已启动，但微信 PC 视频号页面未连接：${data.message || '请打开视频号作者页并等待下载按钮出现。'}${wechatProcessText(data)}`, 'bad');
         }
       } catch (error) {
         wechatStatus = {ok: false, available: false, error: String(error.message || error)};
@@ -2140,6 +2194,8 @@
         finally { stopProgressPolling(); setBusy(false); }
       });
       els.categorySelect.addEventListener('change', () => updateCustomCategoryVisibility(true));
+      els.wechatStartButton.onclick = startWechatService;
+      els.wechatStopButton.onclick = stopWechatService;
       els.wechatCheckButton.onclick = checkWechatChannels;
       els.wechatSearchButton.onclick = searchWechatContacts;
       els.wechatHarvestButton.onclick = harvestWechatChannels;

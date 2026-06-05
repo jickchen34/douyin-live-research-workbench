@@ -77,6 +77,13 @@ git clone https://github.com/ltaoo/wx_channels_download.git external/wx_channels
 
 视频号采集依赖本机微信 PC 页面配合，不是纯后端独立采集。工作台会先检测 `wx_channels_download` 的本地 API 和微信 PC 页面 socket 是否可用，检测失败时不能继续搜索、下载、转录或分析视频号内容。
 
+如果工作台的一键启动没有自动找到可执行文件，在 `.env` 中配置：
+
+```bash
+WECHAT_CHANNELS_BINARY_PATH=/path/to/wx_video_download
+WECHAT_CHANNELS_API_BASE_URL=http://127.0.0.1:38129
+```
+
 ## 6. 配置环境变量
 
 复制模板：
@@ -192,7 +199,7 @@ http://127.0.0.1:8791/
 
 基本顺序：
 
-1. 启动 `wx_channels_download`，保持终端运行。
+1. 在工作台点击“启动本地服务”，或手动启动 `wx_channels_download` 并保持终端运行。
 2. 打开本机微信 PC。
 3. 进入目标视频号作者主页。
 4. 等页面出现下载或批量下载按钮。

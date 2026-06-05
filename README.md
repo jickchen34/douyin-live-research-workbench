@@ -87,6 +87,13 @@ git clone https://github.com/ltaoo/wx_channels_download.git external/wx_channels
 
 视频号功能不是纯后端无感采集。使用前需要启动 `wx_channels_download`，并在本机微信 PC 打开目标视频号作者页，等页面完成代理注入后，再在工作台点击“检测本地 PC”。检测失败时，视频号搜索、下载和后续转录分析入口会保持禁用。
 
+如果控制台没有自动找到 `wx_video_download` 可执行文件，可以在 `.env` 中指定：
+
+```bash
+WECHAT_CHANNELS_BINARY_PATH=/path/to/wx_video_download
+WECHAT_CHANNELS_API_BASE_URL=http://127.0.0.1:38129
+```
+
 系统依赖：
 
 - Python 3.10+
@@ -187,10 +194,10 @@ http://127.0.0.1:8791/
 
 ### 微信视频号流程
 
-1. 启动 `wx_channels_download`。
+1. 在工作台“微信视频号采集”区点击“启动本地服务”，或手动启动 `wx_channels_download`。
 2. 打开本机微信 PC，并进入目标视频号作者页。
 3. 等页面出现下载或批量下载按钮。
-4. 在工作台“微信视频号采集”区点击“检测本地 PC”。
+4. 点击“检测本地 PC”。
 5. 检测通过后，搜索作者或填写 `username`。
 6. 设置点赞 Top N、最低点赞数、高赞评论数等参数。
 7. 点击“采集全部作品”，按需勾选下载、转录和分析。

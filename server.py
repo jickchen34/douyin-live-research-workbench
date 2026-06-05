@@ -4,6 +4,7 @@ import json
 import logging
 import mimetypes
 import os
+import subprocess
 import time
 import threading
 import uuid
@@ -53,6 +54,9 @@ ACTIVE_BATCH_LOCK = threading.Lock()
 ACTIVE_BATCH_TYPES: set[str] = set()
 JOB_LOCK = threading.Lock()
 JOBS: dict[str, dict] = {}
+WECHAT_PROCESS_LOCK = threading.RLock()
+WECHAT_PROCESS: subprocess.Popen | None = None
+WECHAT_PROCESS_LOG = ROOT / "logs" / "wx_channels_download.log"
 
 
 def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -304,6 +308,90 @@ def wechat_base_url(value: object = None) -> str:
     return raw.rstrip("/") or WECHAT_CHANNELS_DEFAULT_BASE_URL
 
 
+def wechat_process_info() -> dict:
+    with WECHAT_PROCESS_LOCK:
+        proc = WECHAT_PROCESS
+        if not proc:
+            return {"managed": False, "running": False, "pid": None, "log_path": str(WECHAT_PROCESS_LOG)}
+        code = proc.poll()
+        return {
+            "managed": True,
+            "running": code is None,
+            "pid": proc.pid,
+            "returncode": code,
+            "log_path": str(WECHAT_PROCESS_LOG),
+        }
+
+
+def wechat_binary_path() -> Path | None:
+    configured = os.environ.get("WECHAT_CHANNELS_BINARY_PATH", "").strip()
+    candidates = []
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.extend(
+        [
+            ROOT / "external" / "wx_channels_download" / "wx_video_download",
+            ROOT / "external" / "wx_channels_download" / "wx_video_download.exe",
+            Path("/private/tmp/wx_channels_download_test/wx_video_download"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def start_wechat_channels_service() -> dict:
+    existing_status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
+    if existing_status.get("ok"):
+        return {"ok": True, "already_running": True, "status": existing_status, "process": wechat_process_info()}
+
+    with WECHAT_PROCESS_LOCK:
+        global WECHAT_PROCESS
+        if WECHAT_PROCESS and WECHAT_PROCESS.poll() is None:
+            return {"ok": True, "already_running": True, "status": existing_status, "process": wechat_process_info()}
+        binary = wechat_binary_path()
+        if not binary:
+            raise RuntimeError(
+                "未找到 wx_channels_download 可执行文件。请下载 release 包，或在 .env 配置 WECHAT_CHANNELS_BINARY_PATH=/path/to/wx_video_download"
+            )
+        config_path = ROOT / "config.wechat_channels_a1.yaml"
+        if not config_path.exists():
+            raise RuntimeError(f"未找到视频号配置文件：{config_path}")
+        WECHAT_PROCESS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        log_file = WECHAT_PROCESS_LOG.open("a", encoding="utf-8")
+        command = [str(binary), "-c", str(config_path)]
+        WECHAT_PROCESS = subprocess.Popen(
+            command,
+            cwd=str(binary.parent),
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        log_event(LOGGER, "wechat.service_start", pid=WECHAT_PROCESS.pid, command=command, log_path=str(WECHAT_PROCESS_LOG))
+        time.sleep(1.5)
+        return {"ok": True, "already_running": False, "status": check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL), "process": wechat_process_info()}
+
+
+def stop_wechat_channels_service() -> dict:
+    with WECHAT_PROCESS_LOCK:
+        global WECHAT_PROCESS
+        proc = WECHAT_PROCESS
+        if not proc or proc.poll() is not None:
+            WECHAT_PROCESS = None
+            return {"ok": True, "stopped": False, "message": "当前没有由本控制台启动的视频号服务进程", "process": wechat_process_info()}
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        log_event(LOGGER, "wechat.service_stop", pid=proc.pid, returncode=proc.returncode)
+        WECHAT_PROCESS = None
+        return {"ok": True, "stopped": True, "process": wechat_process_info()}
+
+
 def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -442,7 +530,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             params = query_params(self.path)
             base_url = wechat_base_url(params.get("base_url"))
             status = check_wechat_channels_status(base_url)
-            json_response(self, 200 if status.get("ok") else 503, status)
+            status["process"] = wechat_process_info()
+            json_response(self, 200, status)
             return
         if path == "/api/progress":
             params = query_params(self.path)
@@ -539,6 +628,24 @@ class AppHandler(SimpleHTTPRequestHandler):
                 error = f"{type(e).__name__}: {e}"
                 log_event(LOGGER, "video.delete_failure", error=error)
                 json_response(self, 500, {"ok": False, "error": error})
+            return
+        if path == "/api/wechat-channels/start":
+            try:
+                result = start_wechat_channels_service()
+                json_response(self, 200, result)
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "wechat.service_start_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error, "process": wechat_process_info()})
+            return
+        if path == "/api/wechat-channels/stop":
+            try:
+                result = stop_wechat_channels_service()
+                json_response(self, 200, result)
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "wechat.service_stop_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error, "process": wechat_process_info()})
             return
         if path == "/api/wechat-channels/search":
             try:
