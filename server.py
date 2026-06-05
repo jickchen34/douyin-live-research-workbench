@@ -1,14 +1,19 @@
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import mimetypes
 import os
+import re
+import shlex
 import subprocess
+import sys
 import time
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,10 +30,13 @@ from db import (
     list_failed_tasks,
     now_iso,
     record_failed_task,
+    safe_unlink,
     save_analysis,
     save_harvest_result,
     save_wechat_channels_result,
     save_transcript,
+    upsert_creator,
+    upsert_video,
     update_video_paths,
     update_video_status,
 )
@@ -37,7 +45,7 @@ from douyin_creator_harvest import harvest_target
 from volcengine import analyze_with_doubao, load_local_env, parse_json_object
 from wechat_channels_harvest import DEFAULT_BASE_URL as WECHAT_CHANNELS_DEFAULT_BASE_URL
 from wechat_channels_harvest import check_status as check_wechat_channels_status
-from wechat_channels_harvest import harvest_wechat_channels, search_contacts
+from wechat_channels_harvest import harvest_wechat_channels, list_download_tasks, search_contacts
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -57,6 +65,9 @@ JOBS: dict[str, dict] = {}
 WECHAT_PROCESS_LOCK = threading.RLock()
 WECHAT_PROCESS: subprocess.Popen | None = None
 WECHAT_PROCESS_LOG = ROOT / "logs" / "wx_channels_download.log"
+WECHAT_LAUNCHD_LABEL = "com.douyin_live_research.wx_channels_download"
+WECHAT_MEDIA_DIR = ROOT / "data" / "wechat_channels_media"
+LOCAL_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 
 
 def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -173,7 +184,19 @@ def filter_batch_video_ids(task_type: str, video_ids: list[int]) -> list[int]:
     return [video_id for video_id in video_ids if video_id in allowed]
 
 
-def execute_video_task(task_type: str, video_id: int) -> dict:
+def delete_video_media_file(conn, video_id: int) -> dict:
+    row = conn.execute("SELECT media_path FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not row:
+        raise ValueError(f"未找到视频 ID：{video_id}")
+    media_path = row["media_path"]
+    deleted = safe_unlink(media_path)
+    if deleted:
+        conn.execute("UPDATE videos SET media_path = NULL, updated_at = ? WHERE id = ?", (now_iso(), video_id))
+        conn.commit()
+    return {"video_id": video_id, "media_path": media_path, "deleted": deleted}
+
+
+def execute_video_task(task_type: str, video_id: int, options: dict | None = None) -> dict:
     if not acquire_video_task(task_type, video_id):
         raise RuntimeError(f"视频 #{video_id} 已有{task_label(task_type)}任务正在处理中")
     try:
@@ -184,7 +207,7 @@ def execute_video_task(task_type: str, video_id: int) -> dict:
         except Exception:
             pass
         if task_type == "transcribe":
-            return transcribe_video(video_id)
+            return transcribe_video(video_id, delete_media_after=bool((options or {}).get("delete_media_after_transcribe")))
         if task_type == "analyze":
             return analyze_video(video_id)
         raise ValueError(f"不支持的任务类型：{task_type}")
@@ -204,7 +227,7 @@ def execute_video_task(task_type: str, video_id: int) -> dict:
         release_video_task(task_type, video_id)
 
 
-def run_batch_job(job_id: str, task_type: str, video_ids: list[int]) -> None:
+def run_batch_job(job_id: str, task_type: str, video_ids: list[int], options: dict | None = None) -> None:
     label = task_label(task_type)
     try:
         set_job_state(job_id, status="running", started_at=time.time())
@@ -213,7 +236,7 @@ def run_batch_job(job_id: str, task_type: str, video_ids: list[int]) -> None:
         fail = 0
         limit = max(1, min(4, BATCH_LIMITS.get(task_type, 1)))
         with ThreadPoolExecutor(max_workers=limit, thread_name_prefix=f"{task_type}-worker") as executor:
-            future_map = {executor.submit(execute_video_task, task_type, video_id): video_id for video_id in video_ids}
+            future_map = {executor.submit(execute_video_task, task_type, video_id, options or {}): video_id for video_id in video_ids}
             for future in as_completed(future_map):
                 video_id = future_map[future]
                 try:
@@ -240,7 +263,7 @@ def run_batch_job(job_id: str, task_type: str, video_ids: list[int]) -> None:
             ACTIVE_BATCH_TYPES.discard(task_type)
 
 
-def enqueue_batch_job(task_type: str, video_ids: list[int]) -> dict:
+def enqueue_batch_job(task_type: str, video_ids: list[int], options: dict | None = None) -> dict:
     if task_type not in {"transcribe", "analyze"}:
         raise ValueError(f"不支持的批量任务类型：{task_type}")
     clean_ids = []
@@ -270,12 +293,13 @@ def enqueue_batch_job(task_type: str, video_ids: list[int]) -> dict:
         "success": 0,
         "fail": 0,
         "video_ids": clean_ids,
+        "options": options or {},
         "created_at": time.time(),
     }
     with JOB_LOCK:
         JOBS[job_id] = dict(job)
     set_task_progress(job_id, stage="queued", label=f"批量{task_label(task_type)}排队中", done=0, total=len(clean_ids), success=0, fail=0, status="queued")
-    thread = threading.Thread(target=run_batch_job, args=(job_id, task_type, clean_ids), daemon=True)
+    thread = threading.Thread(target=run_batch_job, args=(job_id, task_type, clean_ids, options or {}), daemon=True)
     thread.start()
     return dict(JOBS[job_id])
 
@@ -341,6 +365,58 @@ def wechat_binary_path() -> Path | None:
     return None
 
 
+def launch_wechat_service(command: list[str], cwd: Path, log_path: Path) -> subprocess.Popen:
+    log_file = log_path.open("a", encoding="utf-8")
+    return subprocess.Popen(
+        command,
+        cwd=str(cwd),
+        stdout=log_file,
+        stderr=log_file,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def start_wechat_channels_service_elevated(binary: Path, config_path: Path) -> dict:
+    if sys.platform != "darwin":
+        raise RuntimeError("当前系统不支持前端管理员授权启动，请在命令行手动以管理员权限启动 wx_channels_download")
+    WECHAT_PROCESS_LOG.parent.mkdir(parents=True, exist_ok=True)
+    run_command = (
+        f"cd {shlex.quote(str(ROOT))} && "
+        f"exec {shlex.quote(str(binary))} -c {shlex.quote(str(config_path))} "
+        f">> {shlex.quote(str(WECHAT_PROCESS_LOG))} 2>&1"
+    )
+    shell_command = (
+        f"launchctl remove {shlex.quote(WECHAT_LAUNCHD_LABEL)} >/dev/null 2>&1 || true; "
+        f"launchctl submit -l {shlex.quote(WECHAT_LAUNCHD_LABEL)} -- "
+        f"/bin/sh -lc {shlex.quote(run_command)}"
+    )
+    script = f'do shell script {json.dumps(shell_command)} with administrator privileges'
+    subprocess.run(["osascript", "-e", script], check=True, timeout=120)
+    time.sleep(2.0)
+    status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
+    if not status.get("ok"):
+        recent_log = tail_text(WECHAT_PROCESS_LOG)
+        error_hint = " | ".join(recent_log.splitlines()[-12:])
+        raise RuntimeError(f"管理员授权已执行，但 wx_channels_download 没有保持运行。最近日志：{error_hint}")
+    return {
+        "ok": True,
+        "already_running": bool(status.get("ok")),
+        "elevated": True,
+        "status": status,
+        "process": wechat_process_info(),
+        "message": "已通过 macOS 管理员授权启动 wx_channels_download",
+    }
+
+
+def wechat_config_needs_elevation(config_path: Path) -> bool:
+    try:
+        text = config_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+    return bool(re.search(r"(?m)^\s*tun:\s*true\s*$", text))
+
+
 def start_wechat_channels_service() -> dict:
     existing_status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
     if existing_status.get("ok"):
@@ -358,36 +434,48 @@ def start_wechat_channels_service() -> dict:
         config_path = ROOT / "config.wechat_channels_a1.yaml"
         if not config_path.exists():
             raise RuntimeError(f"未找到视频号配置文件：{config_path}")
+        if sys.platform == "darwin" and wechat_config_needs_elevation(config_path):
+            log_event(LOGGER, "wechat.service_start_elevated_required", config_path=str(config_path))
+            return start_wechat_channels_service_elevated(binary, config_path)
         WECHAT_PROCESS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        log_file = WECHAT_PROCESS_LOG.open("a", encoding="utf-8")
         command = [str(binary), "-c", str(config_path)]
-        WECHAT_PROCESS = subprocess.Popen(
-            command,
-            cwd=str(binary.parent),
-            stdout=log_file,
-            stderr=log_file,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        WECHAT_PROCESS = launch_wechat_service(command, binary.parent, WECHAT_PROCESS_LOG)
         log_event(LOGGER, "wechat.service_start", pid=WECHAT_PROCESS.pid, command=command, log_path=str(WECHAT_PROCESS_LOG))
         time.sleep(1.5)
         if WECHAT_PROCESS.poll() is not None:
             recent_log = tail_text(WECHAT_PROCESS_LOG)
             error_hint = recent_log.splitlines()[-12:]
-            raise RuntimeError(
-                "wx_channels_download 启动后立即退出。"
-                "常见原因是首次安装证书需要管理员权限。"
-                f"最近日志：{' | '.join(error_hint)}"
-            )
+            log_event(LOGGER, "wechat.service_start_retry_elevated", reason="process exited", recent_log=" | ".join(error_hint))
+            with WECHAT_PROCESS_LOCK:
+                WECHAT_PROCESS = None
+            return start_wechat_channels_service_elevated(binary, config_path)
         return {"ok": True, "already_running": False, "status": check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL), "process": wechat_process_info()}
 
 
 def stop_wechat_channels_service() -> dict:
+    def wait_until_stopped(timeout: float = 6.0) -> dict:
+        deadline = time.time() + timeout
+        latest_status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
+        while latest_status.get("ok") and time.time() < deadline:
+            time.sleep(0.4)
+            latest_status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
+        return latest_status
+
     with WECHAT_PROCESS_LOCK:
         global WECHAT_PROCESS
         proc = WECHAT_PROCESS
         if not proc or proc.poll() is not None:
             WECHAT_PROCESS = None
+            if sys.platform == "darwin":
+                try:
+                    script = f'do shell script {json.dumps(f"launchctl remove {shlex.quote(WECHAT_LAUNCHD_LABEL)} >/dev/null 2>&1 || true")} with administrator privileges'
+                    subprocess.run(["osascript", "-e", script], check=True, timeout=120)
+                    status = wait_until_stopped()
+                    stopped = not status.get("ok")
+                    message = "已停止视频号服务，并关闭 wx_channels_download 代理" if stopped else "已请求停止视频号服务，但本地 API 仍可连接"
+                    return {"ok": True, "stopped": stopped, "message": message, "status": status, "process": wechat_process_info()}
+                except Exception as e:
+                    return {"ok": True, "stopped": False, "message": f"当前没有由本控制台直接启动的进程，停止管理员服务失败：{type(e).__name__}: {e}", "process": wechat_process_info()}
             return {"ok": True, "stopped": False, "message": "当前没有由本控制台启动的视频号服务进程", "process": wechat_process_info()}
         proc.terminate()
         try:
@@ -397,7 +485,9 @@ def stop_wechat_channels_service() -> dict:
             proc.wait(timeout=5)
         log_event(LOGGER, "wechat.service_stop", pid=proc.pid, returncode=proc.returncode)
         WECHAT_PROCESS = None
-        return {"ok": True, "stopped": True, "process": wechat_process_info()}
+        status = wait_until_stopped()
+        stopped = not status.get("ok")
+        return {"ok": True, "stopped": stopped, "status": status, "message": "已停止视频号服务，并关闭 wx_channels_download 代理" if stopped else "已停止托管进程，但本地 API 仍可连接", "process": wechat_process_info()}
 
 
 def tail_text(path: Path, limit: int = 4000) -> str:
@@ -406,6 +496,238 @@ def tail_text(path: Path, limit: int = 4000) -> str:
     except Exception:
         return ""
     return data[-limit:]
+
+
+def local_wechat_media_dir(value: object = None) -> Path:
+    if value:
+        path = Path(str(value)).expanduser()
+    else:
+        path = WECHAT_MEDIA_DIR
+    resolved = path.resolve()
+    data_root = (ROOT / "data").resolve()
+    if resolved != data_root and data_root not in resolved.parents:
+        raise ValueError("视频号导入目录必须位于项目 data 目录下")
+    return resolved
+
+
+def clean_local_wechat_title(path: Path) -> str:
+    title = path.stem.strip()
+    title = re.sub(r"_xWT\d+(?:\(\d+\))?$", "", title).strip()
+    title = re.sub(r"\s+", " ", title).strip()
+    return title or path.stem
+
+
+def list_local_wechat_videos(directory: Path) -> list[Path]:
+    if not directory.exists():
+        return []
+    if not directory.is_dir():
+        raise ValueError(f"视频号导入路径不是目录：{directory}")
+    files = [item.resolve() for item in directory.iterdir() if item.is_file() and item.suffix.lower() in LOCAL_VIDEO_EXTENSIONS]
+    files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return files
+
+
+def parse_iso_timestamp(value: object) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def task_local_media_path(task: dict) -> Path | None:
+    meta = task.get("meta") or {}
+    opts = meta.get("opts") or task.get("opts") or {}
+    raw_path = opts.get("path")
+    raw_name = task.get("name") or opts.get("name")
+    if not raw_path or not raw_name:
+        return None
+    path = (Path(str(raw_path)).expanduser() / str(raw_name)).resolve()
+    if path.suffix.lower() not in LOCAL_VIDEO_EXTENSIONS:
+        return None
+    return path
+
+
+def task_title(task: dict, path: Path) -> str:
+    labels = (((task.get("meta") or {}).get("req") or {}).get("labels") or {})
+    return str(labels.get("title") or clean_local_wechat_title(path)).strip() or clean_local_wechat_title(path)
+
+
+def task_labels(task: dict) -> dict:
+    return (((task.get("meta") or {}).get("req") or {}).get("labels") or {})
+
+
+def list_wechat_download_batches(
+    base_url: str,
+    directory: Path,
+    window_seconds: int = 120,
+) -> dict:
+    directory = directory.resolve()
+    tasks = list_download_tasks(base_url)
+    entries = []
+    for task in tasks:
+        path = task_local_media_path(task)
+        if not path:
+            continue
+        if path.parent.resolve() != directory:
+            continue
+        if not path.exists():
+            continue
+        created_ts = parse_iso_timestamp(task.get("createdAt")) or path.stat().st_mtime
+        updated_ts = parse_iso_timestamp(task.get("updatedAt")) or path.stat().st_mtime
+        labels = task_labels(task)
+        entries.append(
+            {
+                "task_id": task.get("id"),
+                "feed_id": labels.get("id"),
+                "spec": labels.get("spec"),
+                "status": task.get("status"),
+                "created_ts": created_ts,
+                "updated_ts": updated_ts,
+                "created_at": task.get("createdAt"),
+                "updated_at": task.get("updatedAt"),
+                "path": str(path),
+                "name": path.name,
+                "title": task_title(task, path),
+                "size": path.stat().st_size,
+            }
+        )
+    entries.sort(key=lambda item: (item["created_ts"], item["name"]))
+    batches: list[dict] = []
+    for item in entries:
+        if not batches or item["created_ts"] - batches[-1]["last_created_ts"] > window_seconds:
+            batches.append({"items": [], "first_created_ts": item["created_ts"], "last_created_ts": item["created_ts"]})
+        batches[-1]["items"].append(item)
+        batches[-1]["last_created_ts"] = item["created_ts"]
+    result = []
+    for batch in batches:
+        items = batch["items"]
+        ids = [str(item.get("task_id") or item["path"]) for item in items]
+        batch_id = hashlib.sha1(("|".join(ids)).encode("utf-8")).hexdigest()[:16]
+        statuses: dict[str, int] = {}
+        for item in items:
+            status = str(item.get("status") or "unknown")
+            statuses[status] = statuses.get(status, 0) + 1
+        result.append(
+            {
+                "batch_id": batch_id,
+                "count": len(items),
+                "status_counts": statuses,
+                "first_created_at": datetime.fromtimestamp(batch["first_created_ts"]).astimezone().isoformat(timespec="seconds"),
+                "last_created_at": datetime.fromtimestamp(batch["last_created_ts"]).astimezone().isoformat(timespec="seconds"),
+                "paths": [item["path"] for item in items],
+                "items": items[:30],
+            }
+        )
+    result.sort(key=lambda item: item["last_created_at"], reverse=True)
+    return {"directory": str(directory), "count": len(result), "batches": result}
+
+
+def validate_local_wechat_file_paths(paths: list[object], directory: Path) -> list[Path]:
+    directory = directory.resolve()
+    result: list[Path] = []
+    seen = set()
+    for value in paths:
+        path = Path(str(value)).expanduser().resolve()
+        if path.parent.resolve() != directory:
+            continue
+        if not path.exists() or not path.is_file():
+            continue
+        if path.suffix.lower() not in LOCAL_VIDEO_EXTENSIONS:
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(path)
+    result.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return result
+
+
+def import_local_wechat_downloads(
+    creator_name: str,
+    category: str,
+    directory: Path,
+    task_id: str | None = None,
+    file_paths: list[object] | None = None,
+    file_items: list[dict] | None = None,
+    batch_id: str | None = None,
+) -> dict:
+    if file_items:
+        file_paths = [item.get("path") for item in file_items if isinstance(item, dict)]
+    files = validate_local_wechat_file_paths(file_paths, directory) if file_paths else list_local_wechat_videos(directory)
+    item_by_path = {str(Path(str(item.get("path"))).expanduser().resolve()): item for item in (file_items or []) if isinstance(item, dict) and item.get("path")}
+    conn = connect()
+    init_db(conn)
+    creator_id = upsert_creator(
+        conn,
+        name=creator_name or "本地视频号下载",
+        category=category or "未分类",
+        profile_url="wechat_channels://local-downloads",
+        sec_user_id=None,
+    )
+    imported_ids: list[int] = []
+    new_count = 0
+    for index, path in enumerate(files, start=1):
+        source_hash = hashlib.sha1(str(path).encode("utf-8")).hexdigest()
+        source_url = f"wechat_channels://local/{source_hash}"
+        existing = conn.execute("SELECT id FROM videos WHERE source_url = ?", (source_url,)).fetchone()
+        if not existing:
+            new_count += 1
+        stat = path.stat()
+        task_item = item_by_path.get(str(path), {})
+        video_id = upsert_video(
+            conn,
+            {
+                "platform": "wechat_channels",
+                "source_url": source_url,
+                "source_id": f"local:{source_hash}",
+                "creator_id": creator_id,
+                "title": clean_local_wechat_title(path),
+                "description": clean_local_wechat_title(path),
+                "media_path": str(path),
+                "metadata": {
+                    "platform": "wechat_channels",
+                    "source": "local_wechat_download_import",
+                    "file_name": path.name,
+                    "file_size": stat.st_size,
+                    "file_mtime": stat.st_mtime,
+                    "import_directory": str(directory),
+                    "download_batch_id": batch_id,
+                    "wechat_download_task_id": task_item.get("task_id"),
+                    "wechat_feed_id": task_item.get("feed_id"),
+                    "wechat_spec": task_item.get("spec"),
+                    "wechat_task_created_at": task_item.get("created_at"),
+                    "wechat_task_updated_at": task_item.get("updated_at"),
+                },
+                "status": "downloaded",
+            },
+        )
+        imported_ids.append(video_id)
+        if task_id:
+            set_task_progress(
+                task_id,
+                stage="import",
+                label=f"导入视频号本地视频 {index}/{len(files)}",
+                done=index,
+                total=len(files),
+                success=index,
+                fail=0,
+                status="running",
+            )
+    library = export_library_safely(conn)
+    return {
+        "directory": str(directory),
+        "file_count": len(files),
+        "imported_count": len(imported_ids),
+        "new_count": new_count,
+        "video_ids": imported_ids,
+        "library_count": len(library),
+        "creator_id": creator_id,
+        "creator_name": creator_name or "本地视频号下载",
+        "download_batch_id": batch_id,
+    }
 
 
 def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
@@ -473,7 +795,7 @@ def analyze_video(video_id: int) -> dict:
     }
 
 
-def transcribe_video(video_id: int) -> dict:
+def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
     log_event(LOGGER, "transcribe.start", video_id=video_id)
     conn = connect()
     init_db(conn)
@@ -509,15 +831,19 @@ def transcribe_video(video_id: int) -> dict:
     result_path = save_asr_result(video_id, asr_result)
     save_transcript(conn, video_id, transcript_text, str(result_path), "doubao-asr", os.environ.get("DOUBAO_ASR_RESOURCE_ID", ""))
     update_video_paths(conn, video_id, status="transcribed")
+    deleted_media = None
+    if delete_media_after:
+        deleted_media = delete_video_media_file(conn, video_id)
     clear_failed_task(conn, "transcribe", video_id)
     export_library_safely(conn)
-    log_event(LOGGER, "transcribe.success", video_id=video_id, transcript_length=len(transcript_text), audio_path=str(audio_path), result_path=str(result_path))
+    log_event(LOGGER, "transcribe.success", video_id=video_id, transcript_length=len(transcript_text), audio_path=str(audio_path), result_path=str(result_path), deleted_media=deleted_media)
     return {
         "video_id": video_id,
         "audio_path": str(audio_path),
         "transcript_path": str(result_path),
         "transcript_length": len(transcript_text),
         "transcript_preview": transcript_text[:500],
+        "deleted_media": deleted_media,
     }
 
 
@@ -549,6 +875,44 @@ class AppHandler(SimpleHTTPRequestHandler):
             status["process"] = wechat_process_info()
             json_response(self, 200, status)
             return
+        if path == "/api/wechat-channels/local-downloads":
+            try:
+                params = query_params(self.path)
+                directory = local_wechat_media_dir(params.get("directory"))
+                files = list_local_wechat_videos(directory)
+                json_response(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "directory": str(directory),
+                        "count": len(files),
+                        "items": [
+                            {
+                                "name": item.name,
+                                "title": clean_local_wechat_title(item),
+                                "path": str(item),
+                                "size": item.stat().st_size,
+                                "mtime": item.stat().st_mtime,
+                            }
+                            for item in files[:30]
+                        ],
+                    },
+                )
+            except Exception as e:
+                json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            return
+        if path == "/api/wechat-channels/download-batches":
+            try:
+                params = query_params(self.path)
+                directory = local_wechat_media_dir(params.get("directory"))
+                base_url = wechat_base_url(params.get("base_url"))
+                window_seconds = bounded_int(params.get("window_seconds"), 120, 10, 600)
+                result = list_wechat_download_batches(base_url, directory, window_seconds=window_seconds)
+                json_response(self, 200, {"ok": True, **result})
+            except Exception as e:
+                json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            return
         if path == "/api/progress":
             params = query_params(self.path)
             payload = get_task_progress(params.get("task_id"))
@@ -569,7 +933,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             try:
                 payload = read_json(self)
                 video_id = bounded_int(payload.get("video_id"), 0, 1, 10_000_000)
-                result = execute_video_task("transcribe", video_id)
+                result = execute_video_task("transcribe", video_id, {"delete_media_after_transcribe": bool(payload.get("delete_media_after_transcribe", False))})
                 json_response(self, 200, {"ok": True, "result": result})
             except Exception as e:
                 json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
@@ -590,7 +954,10 @@ class AppHandler(SimpleHTTPRequestHandler):
                 video_ids = payload.get("video_ids") or []
                 if not isinstance(video_ids, list):
                     raise ValueError("video_ids 必须是数组")
-                job = enqueue_batch_job(task_type, video_ids)
+                options = payload.get("options") or {}
+                if not isinstance(options, dict):
+                    raise ValueError("options 必须是对象")
+                job = enqueue_batch_job(task_type, video_ids, options=options)
                 json_response(self, 200, {"ok": True, "job": job, "task_id": job["job_id"]})
             except Exception as e:
                 json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
@@ -662,6 +1029,45 @@ class AppHandler(SimpleHTTPRequestHandler):
                 error = f"{type(e).__name__}: {e}"
                 log_event(LOGGER, "wechat.service_stop_failure", error=error)
                 json_response(self, 500, {"ok": False, "error": error, "process": wechat_process_info()})
+            return
+        if path == "/api/wechat-channels/import-downloads":
+            try:
+                payload = read_json(self)
+                task_id = str(payload.get("task_id") or f"wechat_import_{uuid.uuid4()}")
+                creator_name = str(payload.get("creator_name") or "").strip() or "本地视频号下载"
+                category = str(payload.get("category") or "未分类").strip() or "未分类"
+                directory = local_wechat_media_dir(payload.get("directory"))
+                file_paths = payload.get("file_paths")
+                if file_paths is not None and not isinstance(file_paths, list):
+                    raise ValueError("file_paths 必须是数组")
+                file_items = payload.get("file_items")
+                if file_items is not None and not isinstance(file_items, list):
+                    raise ValueError("file_items 必须是数组")
+                batch_id = str(payload.get("batch_id") or "").strip() or None
+                set_task_progress(task_id, stage="start", label="导入视频号本地视频", done=0, total=0, success=0, fail=0, status="running")
+                result = import_local_wechat_downloads(creator_name, category, directory, task_id=task_id, file_paths=file_paths, file_items=file_items, batch_id=batch_id)
+                clear_failed_task(connect(), "wechat_import")
+                set_task_progress(
+                    task_id,
+                    stage="done",
+                    label="视频号本地视频导入完成",
+                    done=result.get("imported_count") or 0,
+                    total=result.get("file_count") or 0,
+                    success=result.get("imported_count") or 0,
+                    fail=0,
+                    status="done",
+                )
+                log_event(LOGGER, "wechat.local_import_success", task_id=task_id, **result)
+                json_response(self, 200, {"ok": True, "task_id": task_id, "result": result})
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                if "task_id" in locals():
+                    set_task_progress(task_id, stage="failed", label="视频号本地视频导入失败", done=1, total=1, success=0, fail=1, status="failed", error=error)
+                conn = connect()
+                init_db(conn)
+                record_failed_task(conn, "wechat_import", error, payload=payload if "payload" in locals() else {})
+                log_event(LOGGER, "wechat.local_import_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error})
             return
         if path == "/api/wechat-channels/search":
             try:

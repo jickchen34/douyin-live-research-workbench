@@ -6,5 +6,7 @@ __pycache__/
 data/
 logs/
 web/library.json
+app.log
+gopeed.db
 external/Douyin_TikTok_Download_API/
 external/wx_channels_download/

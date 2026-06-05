@@ -7,7 +7,7 @@ pagespy:
 download:
   defaultHighest: false
   filenameTemplate: "{{filename}}_{{spec}}"
-  dir: "%UserDownloads%"
+  dir: "data/wechat_channels_media"
   pauseWhenDownload: false
   playDoneAudio: true
   frontend: false
@@ -28,10 +28,10 @@ update:
   mirror: ""
 
 proxy:
-  system: true
+  system: false
   hostname: "127.0.0.1"
   port: 38130
-  tun: false
+  tun: true
   skipInstallRootCert: false
   upstreamProxy: ""
 

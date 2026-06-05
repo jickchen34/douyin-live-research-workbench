@@ -247,6 +247,8 @@ def map_downloaded_paths(base_url: str, source_ids: set[str]) -> tuple[dict[str,
                 done[feed_id] = path
         elif status == "error":
             errors[feed_id] = json.dumps(task.get("error") or task, ensure_ascii=False)[:500]
+        elif status in {"pause", "cancel", "canceled"}:
+            errors[feed_id] = f"下载任务已停止：{status}"
     return done, errors
 
 
