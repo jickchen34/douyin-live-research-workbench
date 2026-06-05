@@ -6,27 +6,34 @@
   <title>抖音账号素材采集台</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #0d100f;
-      --canvas: #111615;
-      --panel: #18201d;
-      --panel-2: #202a26;
-      --panel-3: #0a0d0c;
-      --line: rgba(232, 244, 236, 0.10);
-      --line-strong: rgba(232, 244, 236, 0.20);
-      --text: #edf5f0;
-      --muted: #9fafaa;
-      --muted-2: #71817b;
-      --green: #57d68d;
-      --green-2: #2f8a59;
-      --cyan: #68cfe7;
-      --amber: #f0bd5f;
-      --red: #ff746d;
-      --blue: #9bbcff;
+      color-scheme: light;
+      --bg: #f6f2e9;
+      --canvas: #faf9f5;
+      --panel: #fffdf7;
+      --panel-2: #ede8dc;
+      --panel-3: #f2eee4;
+      --line: rgba(48, 48, 46, 0.10);
+      --line-strong: rgba(48, 48, 46, 0.18);
+      --text: #141413;
+      --muted: #6f6a60;
+      --muted-2: #948d81;
+      --green: #507a54;
+      --green-2: #516d45;
+      --cyan: #c96442;
+      --amber: #9a6a26;
+      --red: #b64335;
+      --blue: #4f6f9d;
       --radius-sm: 6px;
       --radius: 8px;
       --radius-lg: 12px;
-      --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --accent: #c96442;
+      --accent-strong: #ad4f32;
+      --ivory: #faf9f5;
+      --surface-white: #ffffff;
+      --shadow-soft: 0 10px 30px rgba(48, 48, 46, 0.08);
+      --shadow-ring: 0 0 0 1px rgba(48, 48, 46, 0.08);
+      --font: ui-serif, Charter, "Iowan Old Style", "Songti SC", "SimSun", serif;
+      --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     }
     * { box-sizing: border-box; }
@@ -35,12 +42,12 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font-family: var(--font);
+      font-family: var(--font-ui);
       letter-spacing: 0;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
-    button, input, select { font: inherit; }
+    button, input, select { font-family: var(--font-ui); }
     button {
       min-height: 38px;
       border: 1px solid var(--line-strong);
@@ -87,7 +94,7 @@
       gap: 18px;
       padding: 12px 20px;
     }
-    .brand h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -0.012em; }
+    .brand h1 { margin: 0; font-family: var(--font); font-size: 21px; line-height: 1.15; letter-spacing: -0.012em; }
     .brand p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
     .tabs { display: flex; gap: 6px; justify-content: center; }
     .tab {
@@ -137,8 +144,9 @@
     .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .workbench { display: grid; grid-template-rows: auto auto auto; gap: 16px; }
-    .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) repeat(6, minmax(96px, 0.55fr)) auto; gap: 10px; align-items: end; }
+    .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(140px, 0.65fr) repeat(3, minmax(108px, 0.5fr)) minmax(96px, auto) auto minmax(116px, auto); gap: 10px; align-items: end; }
     .harvest-form .category-field { min-width: 140px; display: grid; gap: 6px; }
+    .post-harvest-options { display: flex; align-items: center; gap: 12px; min-height: 38px; }
     .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); min-height: 38px; margin: 0; }
     .toggle input { width: 16px; min-height: 16px; }
     .status-box {
@@ -225,10 +233,58 @@
       min-height: 34px;
       margin-bottom: 10px;
     }
-    .side-filters { display: grid; gap: 8px; margin-bottom: 10px; }
-    .compact-list { display: grid; gap: 10px; }
+    .task-browser {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 0;
+      min-height: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012));
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.045), 0 10px 26px rgba(0,0,0,0.14);
+    }
+    .task-browser-column { min-height: 0; display: grid; align-content: start; gap: 8px; padding: 10px; }
+    .task-browser-column:first-child { border-right: 1px solid var(--line-strong); }
+    .content-column { position: relative; padding-bottom: 56px; }
+    .side-section-title {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+    .creator-tag-list { display: grid; gap: 8px; max-height: calc(100vh - 210px); overflow: auto; padding-right: 2px; }
+    .creator-tag {
+      width: 100%;
+      min-height: 52px;
+      display: grid;
+      gap: 3px;
+      justify-items: start;
+      align-content: center;
+      text-align: left;
+      white-space: normal;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--creator-bg, var(--panel-2)), rgba(10, 13, 12, 0.92));
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(104, 207, 231, 0.28));
+    }
+    .creator-tag.active {
+      border-color: transparent;
+      outline: 1px solid rgba(87, 214, 141, 0.58);
+      outline-offset: -1px;
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.62)), 0 0 0 1px rgba(87, 214, 141, 0.10);
+    }
+    .creator-tag-name {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+      font-weight: 820;
+    }
+    .creator-tag-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .content-filters { display: grid; gap: 8px; margin-bottom: 2px; }
+    .compact-list { display: grid; gap: 8px; max-height: calc(100vh - 300px); overflow: auto; padding-right: 2px; }
     .compact-card {
-      border: 1px solid var(--creator-border, var(--line));
+      border: 1px solid transparent;
       border-radius: var(--radius);
       background: linear-gradient(135deg, var(--creator-bg, var(--panel-3)), rgba(10, 13, 12, 0.96));
       padding: 13px;
@@ -236,8 +292,25 @@
       min-height: 94px;
       box-shadow: inset 4px 0 0 var(--creator-accent, rgba(104, 207, 231, 0.28));
     }
-    .compact-card.active { border-color: rgba(87, 214, 141, 0.72); box-shadow: inset 4px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.65)), 0 0 0 1px rgba(87, 214, 141, 0.12); }
+    .compact-card.active { border-color: transparent; outline: 1px solid rgba(87, 214, 141, 0.58); outline-offset: -1px; box-shadow: inset 4px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.65)), 0 0 0 1px rgba(87, 214, 141, 0.10); }
     .compact-title { font-size: 14px; font-weight: 760; line-height: 1.48; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .content-tag {
+      min-height: 72px;
+      padding: 10px;
+      border-radius: var(--radius);
+    }
+    .content-tag .compact-title { font-size: 13px; -webkit-line-clamp: 2; }
+    .content-tag .task-meta { gap: 6px; }
+    .export-list-button {
+      position: sticky;
+      bottom: 10px;
+      justify-self: end;
+      z-index: 4;
+      border-color: rgba(104, 207, 231, 0.54);
+      background: rgba(22, 36, 34, 0.94);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.28), 0 0 0 1px rgba(104, 207, 231, 0.08);
+      backdrop-filter: blur(6px);
+    }
     .detail-main { display: grid; gap: 14px; }
     .hero-detail { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 16px; }
     .hero-title { margin: 0 0 12px; font-size: 22px; line-height: 1.35; letter-spacing: -0.012em; }
@@ -248,11 +321,35 @@
     .block { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); padding: 16px; }
     .block-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
     .block-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-3);
+      padding: 2px;
+    }
+    .segment {
+      min-height: 30px;
+      border: 0;
+      box-shadow: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 0 10px;
+    }
+    .segment.active {
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(48,48,46,0.08);
+    }
     .collapse-toggle { min-height: 32px; padding: 0 10px; color: var(--muted); }
     .block.collapsed .collapsible-body { display: none; }
     .block h3 { margin: 0; font-size: 16px; }
     .text-box { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 13px; color: #dfe9e4; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
     .transcript { font-size: 15px; max-height: 320px; overflow: auto; }
+    .transcript-raw { max-height: none; overflow: visible; line-height: 1.95; }
+    .transcript-sentence { max-height: 320px; overflow: auto; }
     .transcript.expanded { max-height: 760px; }
     .paragraph { padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.05); }
     .paragraph:first-child { border-top: 0; padding-top: 0; }
@@ -306,6 +403,7 @@
     .loading-mask[hidden] { display: none; }
     .loading-card {
       width: min(420px, calc(100vw - 40px));
+      max-width: calc(100vw - 40px);
       border: 1px solid rgba(104, 207, 231, 0.28);
       border-radius: var(--radius-lg);
       background: #121a17;
@@ -326,13 +424,68 @@
     }
     .loading-title { font-size: 17px; font-weight: 820; }
     .loading-text { color: var(--muted); line-height: 1.65; }
+    .loading-progress {
+      width: 100%;
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    .loading-progress-meta, .loading-progress-stats {
+      width: 100%;
+      min-width: 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      text-align: left;
+    }
+    .loading-progress-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #loadingProgressCount {
+      flex: 0 0 auto;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .loading-progress-track {
+      position: relative;
+      height: 9px;
+      border: 1px solid rgba(104, 207, 231, 0.22);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .loading-progress-fill {
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--cyan));
+      transition: width 180ms ease;
+    }
+    .loading-progress-track.indeterminate .loading-progress-fill {
+      width: 42%;
+      animation: loadingSweep 1200ms ease-in-out infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes loadingSweep {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(260%); }
+    }
     @media (max-width: 1280px) {
       .harvest-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .batch-layout { grid-template-columns: 1fr; }
       .batch-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .detail-page, .detail-page.right-open, .detail-page.left-collapsed, .detail-page.left-collapsed.right-open { grid-template-columns: 330px minmax(0, 1fr); }
+      .task-browser { grid-template-columns: 112px minmax(0, 1fr); }
       .side-panel { grid-column: 1 / -1; position: static; height: auto; }
     }
     @media (max-width: 860px) {
@@ -345,7 +498,191 @@
       .side-list { position: static; height: auto; max-height: 360px; }
       .side-list.collapsed, .side-panel.collapsed { display: block; height: auto; }
       .side-list.collapsed .side-inner, .side-panel.collapsed .side-inner { display: none; }
+      .task-browser { grid-template-columns: 1fr; }
+      .task-browser-column:first-child { border-right: 0; border-bottom: 1px solid var(--line-strong); }
+      .creator-tag-list { max-height: 190px; }
+      .compact-list { max-height: 300px; }
       .comment { grid-template-columns: 1fr; }
+    }
+    /* Claude-inspired light redesign */
+    body { background: var(--bg); color: var(--text); }
+    button {
+      border-color: rgba(48, 48, 46, 0.14);
+      background: #f3eee4;
+      color: var(--text);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7), 0 1px 2px rgba(48,48,46,0.06);
+    }
+    button:hover:not(:disabled) {
+      border-color: rgba(201, 100, 66, 0.46);
+      background: #eee6d9;
+    }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid rgba(201, 100, 66, 0.38);
+      outline-offset: 2px;
+    }
+    button.primary {
+      border-color: var(--accent-strong);
+      background: var(--accent);
+      color: #fffaf3;
+      box-shadow: 0 8px 18px rgba(173, 79, 50, 0.18);
+    }
+    button.primary:hover:not(:disabled) { background: var(--accent-strong); }
+    button.danger { border-color: rgba(182, 67, 53, 0.34); color: #8f2f27; background: #f6dfd9; }
+    button.warn { border-color: rgba(154, 106, 38, 0.36); color: #704b19; background: #f5ead5; }
+    button.ghost { background: transparent; box-shadow: none; }
+    button:disabled { opacity: 0.52; cursor: wait; box-shadow: none; }
+    input, select {
+      border-color: rgba(48, 48, 46, 0.14);
+      background: #fffaf3;
+      color: var(--text);
+      box-shadow: inset 0 1px 1px rgba(48,48,46,0.03);
+    }
+    input::placeholder { color: #a79f91; }
+    label, .muted, .task-meta, .progress-meta { color: var(--muted); }
+    a { color: var(--accent-strong); }
+    .topnav {
+      border-bottom-color: rgba(48, 48, 46, 0.10);
+      background: rgba(246, 242, 233, 0.94);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7);
+      backdrop-filter: blur(10px);
+    }
+    .brand h1, .page-title, .hero-title, .panel h2, .panel h3, .block h3 {
+      font-family: var(--font);
+      color: #171614;
+    }
+    .brand p { color: #746d61; }
+    .tab {
+      color: #756f64;
+      background: transparent;
+      box-shadow: none;
+    }
+    .tab.active {
+      color: #171614;
+      background: #fffaf3;
+      border-color: rgba(48, 48, 46, 0.14);
+      box-shadow: 0 1px 2px rgba(48,48,46,0.08);
+    }
+    .pill {
+      border-color: rgba(48, 48, 46, 0.12);
+      background: rgba(255, 250, 243, 0.72);
+      color: #756f64;
+    }
+    .pill b { color: #171614; }
+    .pill.green { color: #41683f; border-color: rgba(80, 122, 84, 0.26); background: #f0f5ec; }
+    .pill.cyan { color: #6f6254; border-color: rgba(80, 74, 66, 0.18); background: #f4efe5; }
+    .pill.amber { color: #80551b; border-color: rgba(154, 106, 38, 0.24); background: #f7edd8; }
+    .pill.red { color: #903329; border-color: rgba(182, 67, 53, 0.26); background: #f8e6e1; }
+    .page { background: transparent; }
+    .panel, .hero-detail, .block, .side-list, .side-panel {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: var(--panel);
+      box-shadow: var(--shadow-ring), var(--shadow-soft);
+    }
+    .panel-head { color: var(--text); }
+    .status-box, .preview-list, .text-box, .metric, .mini-stat, .log-box {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: #fffaf3;
+      color: #282520;
+    }
+    .status-box.ok { border-color: rgba(80, 122, 84, 0.34); color: #41683f; background: #f0f6ec; }
+    .status-box.bad { border-color: rgba(182, 67, 53, 0.34); color: #903329; background: #f8e6e1; }
+    .preview-item { border-top-color: rgba(48,48,46,0.08); }
+    .preview-title { color: var(--text); }
+    .progress-track {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: #e6dece;
+    }
+    .progress-fill { background: linear-gradient(90deg, #c96442, #8f6f4c); }
+    .score { color: var(--accent-strong); }
+    .task-card {
+      border-color: var(--creator-border, rgba(48, 48, 46, 0.10));
+      background: linear-gradient(135deg, var(--creator-bg, #f4ecdf), #fffaf3);
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(201,100,66,0.56)), 0 1px 2px rgba(48,48,46,0.06);
+    }
+    .task-card:hover { border-color: var(--creator-accent, rgba(201,100,66,0.46)); }
+    .task-card.active {
+      border-color: rgba(201, 100, 66, 0.46);
+      outline-color: rgba(201, 100, 66, 0.30);
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(201,100,66,0.70)), 0 8px 18px rgba(48,48,46,0.08);
+    }
+    .task-browser {
+      border-color: rgba(48, 48, 46, 0.14);
+      background: #fffaf3;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 20px rgba(48,48,46,0.07);
+    }
+    .task-browser-column:first-child { border-right-color: rgba(48, 48, 46, 0.12); }
+    .side-section-title { color: #756f64; }
+    .creator-tag, .compact-card {
+      background: linear-gradient(135deg, var(--creator-bg, #f3eadc), #fffaf3);
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(201,100,66,0.50));
+      color: var(--text);
+    }
+    .creator-tag.active, .compact-card.active {
+      outline-color: rgba(201, 100, 66, 0.46);
+      box-shadow: inset 3px 0 0 var(--creator-accent, rgba(201,100,66,0.70)), 0 4px 12px rgba(48,48,46,0.08);
+    }
+    .creator-tag-count { color: var(--muted); }
+    .export-list-button {
+      border-color: rgba(201, 100, 66, 0.42);
+      background: rgba(255, 250, 243, 0.94);
+      color: #9b442b;
+      box-shadow: 0 14px 30px rgba(48,48,46,0.14);
+    }
+    .metric span, .mini-stat span { color: var(--muted); }
+    .metric b, .mini-stat b { color: #171614; }
+    .paragraph { border-top-color: rgba(48,48,46,0.08); }
+    .comment {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: #fffaf3;
+    }
+    .comment-likes { color: #80551b; }
+    .analysis-item {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: #fffaf3;
+      box-shadow: 0 1px 2px rgba(48,48,46,0.05);
+    }
+    .analysis-item h4 { color: #9b442b; }
+    .analysis-item p, .analysis-item ul { color: #282520; }
+    .talking-point {
+      border-color: rgba(201, 100, 66, 0.16);
+      background: #fffaf3;
+    }
+    .talking-tag.topic { border-color: rgba(201, 100, 66, 0.30); background: #f8e7df; color: #9b442b; }
+    .talking-tag.viewpoint { border-color: rgba(154, 106, 38, 0.28); background: #f7edd8; color: #704b19; }
+    .talking-title, .talking-note { color: #282520; }
+    .failure-card {
+      border-color: rgba(182, 67, 53, 0.26);
+      background: #fff3ef;
+    }
+    .failure-error { color: #903329; background: #f8e6e1; }
+    .rail-toggle { color: #756f64; background: #fffaf3; }
+    .empty {
+      border-color: rgba(48, 48, 46, 0.16);
+      color: var(--muted);
+      background: rgba(255,250,243,0.56);
+    }
+    .loading-mask {
+      background: rgba(246, 242, 233, 0.72);
+      backdrop-filter: blur(3px);
+    }
+    .loading-card {
+      border-color: rgba(48, 48, 46, 0.12);
+      background: #fffaf3;
+      box-shadow: 0 18px 60px rgba(48,48,46,0.16);
+    }
+    .loading-spinner {
+      border-color: rgba(201, 100, 66, 0.20);
+      border-top-color: var(--accent);
+    }
+    .loading-title { color: #171614; }
+    .loading-text { color: var(--muted); }
+    .loading-progress-track {
+      border-color: rgba(201, 100, 66, 0.18);
+      background: #f4ecdf;
+    }
+    .loading-progress-fill { background: linear-gradient(90deg, #c96442, #8f6f4c); }
+    @media (max-width: 860px) {
+      .task-browser-column:first-child { border-right: 0; border-bottom-color: rgba(48, 48, 46, 0.12); }
     }
   </style>
 </head>
@@ -389,14 +726,8 @@
                 </select>
                 <input id="customCategoryInput" placeholder="输入自定义分类" hidden />
               </div>
-              <div>
-                <label for="pageSize">每页数量</label>
-                <input id="pageSize" type="number" min="1" max="50" value="10" />
-              </div>
-              <div>
-                <label for="maxPages">页数</label>
-                <input id="maxPages" type="number" min="0" max="200" value="1" />
-              </div>
+              <input id="pageSize" type="hidden" value="100" />
+              <input id="maxPages" type="hidden" value="100" />
               <div>
                 <label for="topVideos">点赞 Top N</label>
                 <input id="topVideos" type="number" min="0" max="10000" value="3" />
@@ -413,9 +744,12 @@
                 <label class="toggle"><input id="download" type="checkbox" checked /> 下载视频</label>
               </div>
               <button id="runButton" class="primary" type="submit">开始采集</button>
-              <label class="toggle"><input id="autoProcessAfterHarvest" type="checkbox" /> 转录并分析</label>
+              <div class="post-harvest-options">
+                <label class="toggle"><input id="autoTranscribeAfterHarvest" type="checkbox" checked /> 转录</label>
+                <label class="toggle"><input id="autoAnalyzeAfterHarvest" type="checkbox" /> 分析</label>
+              </div>
             </form>
-            <div id="status" class="status-box">待命。第一次建议页数设为 1，确认稳定后再扩大范围。</div>
+            <div id="status" class="status-box">待命。默认会尽量扫描账号全部作品，再按点赞 Top N 和最低点赞数筛选。</div>
           </section>
 
           <section class="panel">
@@ -482,6 +816,7 @@
               <div class="muted">筛选素材卡片，勾选后可批量处理，点击卡片进入信息页面。</div>
             </div>
             <div class="toolbar-actions">
+              <button type="button" id="selectAllButton">全选全部</button>
               <button type="button" id="selectVisibleButton">选择当前筛选</button>
               <button type="button" id="clearSelectionButton" class="ghost">清空选择</button>
               <button type="button" id="selectedTranscribeButton" class="primary">转录已选</button>
@@ -533,13 +868,27 @@
             <button id="toggleLeftRail" class="rail-toggle" type="button">收起任务列表</button>
             <div class="side-inner">
               <div class="panel-head"><h3>任务列表</h3><span id="detailListCount" class="pill">0 条</span></div>
-              <div class="side-filters">
-                <input id="detailKeyword" placeholder="筛选标题、账号" />
-                <select id="detailCreator"><option value="">全部账号</option></select>
-                <select id="detailCategory"><option value="">全部分类</option></select>
-                <select id="detailStatus"></select>
+              <div class="task-browser">
+                <div class="task-browser-column">
+                  <div class="side-section-title">作者</div>
+                  <div id="detailCreatorTags" class="creator-tag-list"></div>
+                </div>
+                <div class="task-browser-column content-column">
+                  <div class="side-section-title">内容</div>
+                  <div class="content-filters">
+                    <input id="detailKeyword" placeholder="筛选标题" />
+                    <select id="detailStatus"></select>
+                    <select id="detailSort">
+                      <option value="likes_desc">点赞从高到低</option>
+                      <option value="likes_asc">点赞从低到高</option>
+                      <option value="score">素材分排序</option>
+                      <option value="updated">最近更新</option>
+                    </select>
+                  </div>
+                  <div id="compactList" class="compact-list"></div>
+                  <button id="exportDetailListButton" class="export-list-button" type="button">导出全部</button>
+                </div>
               </div>
-              <div id="compactList" class="compact-list"></div>
             </div>
           </aside>
           <section id="detailMain" class="detail-main"><div class="empty">请选择一条素材查看详情。</div></section>
@@ -578,6 +927,19 @@
       <div class="loading-spinner" aria-hidden="true"></div>
       <div class="loading-title">任务处理中</div>
       <div id="loadingText" class="loading-text">请稍候，当前操作完成前请不要重复点击。</div>
+      <div class="loading-progress">
+        <div class="loading-progress-meta">
+          <span id="loadingProgressLabel" class="loading-progress-label">准备中</span>
+          <span id="loadingProgressCount">0 / 0</span>
+        </div>
+        <div id="loadingProgressTrack" class="loading-progress-track indeterminate">
+          <div id="loadingProgressFill" class="loading-progress-fill"></div>
+        </div>
+        <div class="loading-progress-stats">
+          <span id="loadingProgressSuccess">成功 0</span>
+          <span id="loadingProgressFail">失败 0</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -591,8 +953,11 @@
     let leftRailCollapsed = false;
     let rightRailOpen = false;
     let creatorColorMap = new Map();
+    let selectedDetailCreator = '';
+    let transcriptViewMode = 'raw';
     const creatorColorSeed = Math.random();
-    const collapsedBlocks = new Set(['transcript']);
+    const collapsedBlocks = new Set();
+    let progressPollTimer = null;
 
     const statusOptions = [
       ['','全部状态'], ['harvested','已采集'], ['downloaded','已下载'], ['transcribed','已转录'],
@@ -601,12 +966,12 @@
     const els = {};
     function bind() {
       for (const id of [
-        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoProcessAfterHarvest','runButton','status','refreshButton',
+        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','runButton','status','refreshButton',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
-        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
-        'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailCreator','detailCategory','detailStatus','detailListCount','compactList','detailMain','currentTaskBadge','currentTaskPanel',
-        'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText'
+        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
+        'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailStatus','detailSort','detailCreatorTags','detailListCount','compactList','exportDetailListButton','detailMain','currentTaskBadge','currentTaskPanel',
+        'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText','loadingProgressLabel','loadingProgressCount','loadingProgressTrack','loadingProgressFill','loadingProgressSuccess','loadingProgressFail'
       ]) els[id] = document.getElementById(id);
     }
     function fmt(n) {
@@ -618,9 +983,9 @@
     function html(v) { return safe(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
     function colorFromHue(hue) {
       return {
-        bg: `hsl(${hue} 30% 21%)`,
-        border: `hsl(${hue} 52% 54% / 0.34)`,
-        accent: `hsl(${hue} 62% 62% / 0.62)`
+        bg: `oklch(0.955 0.026 ${hue})`,
+        border: `oklch(0.76 0.045 ${hue} / 0.34)`,
+        accent: `oklch(0.60 0.072 ${hue} / 0.58)`
       };
     }
     function seededRandom(seed) {
@@ -641,7 +1006,7 @@
         colorFromHue(168), colorFromHue(328), colorFromHue(55), colorFromHue(205)
       ]);
       const startHue = Math.round(creatorColorSeed * 360);
-      const creators = [...new Set(rows.map(r => safe(r.creator_name).trim() || '未知账号'))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+      const creators = [...new Set(rows.map(r => creatorName(r)))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
       creatorColorMap = new Map();
       creators.forEach((creator, index) => {
         const color = palette[index] || colorFromHue(Math.round((startHue + index * 137.508) % 360));
@@ -649,7 +1014,7 @@
       });
     }
     function creatorColorStyle(name) {
-      const key = safe(name).trim() || '未知账号';
+      const key = name ? String(name).trim() || '未知账号' : '未知账号';
       const color = creatorColorMap.get(key) || colorFromHue(191);
       return `style="--creator-bg: ${color.bg}; --creator-border: ${color.border}; --creator-accent: ${color.accent};"`;
     }
@@ -658,11 +1023,28 @@
       els.status.className = 'status-box' + (mode ? ' ' + mode : '');
       if (busy && els.loadingText) els.loadingText.textContent = text || '请稍候，当前操作完成前请不要重复点击。';
     }
+    function resetProgress(label = '准备中') {
+      updateProgress(label, 0, 0, 0, 0);
+      setLoadingIndeterminate(true, label);
+    }
+    function makeTaskId(prefix = 'task') {
+      if (window.crypto?.randomUUID) return `${prefix}_${window.crypto.randomUUID()}`;
+      return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    }
+    function setLoadingIndeterminate(value, label = '') {
+      if (!els.loadingProgressTrack) return;
+      els.loadingProgressTrack.classList.toggle('indeterminate', Boolean(value));
+      if (label && els.loadingProgressLabel) els.loadingProgressLabel.textContent = label;
+      if (value && els.loadingProgressCount) els.loadingProgressCount.textContent = '处理中';
+    }
     function setBusy(value) {
       busy = value;
       if (els.loadingMask) els.loadingMask.hidden = !value;
-      if (value && els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoProcessAfterHarvest']) {
+      if (value) {
+        if (els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
+        if (!els.loadingProgressLabel?.textContent || els.loadingProgressLabel.textContent === '未开始') resetProgress('准备中');
+      }
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest']) {
         if (els[id]) els[id].disabled = value;
       }
     }
@@ -671,10 +1053,71 @@
       els.progressCount.textContent = `${done} / ${total}`;
       els.progressSuccess.textContent = `成功 ${success}`;
       els.progressFail.textContent = `失败 ${fail}`;
-      els.progressFill.style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      els.progressFill.style.width = total ? `${pct}%` : '0%';
+      if (els.loadingProgressLabel) els.loadingProgressLabel.textContent = label || '处理中';
+      if (els.loadingProgressCount) els.loadingProgressCount.textContent = total ? `${done} / ${total}` : '处理中';
+      if (els.loadingProgressSuccess) els.loadingProgressSuccess.textContent = `成功 ${success}`;
+      if (els.loadingProgressFail) els.loadingProgressFail.textContent = `失败 ${fail}`;
+      if (els.loadingProgressFill) els.loadingProgressFill.style.width = total ? `${pct}%` : '0%';
+      if (els.loadingProgressTrack) els.loadingProgressTrack.classList.toggle('indeterminate', !total);
+    }
+    function applyRemoteProgress(progress) {
+      if (!progress || !busy) return;
+      const label = progress.label || '处理中';
+      const done = Number(progress.done || 0);
+      const total = Number(progress.total || 0);
+      const success = Number(progress.success || 0);
+      const fail = Number(progress.fail || 0);
+      updateProgress(label, done, total, success, fail);
+      if (!total) setLoadingIndeterminate(true, label);
+      if (progress.status === 'failed' && progress.error) setStatus(String(progress.error), 'bad');
+    }
+    function stopProgressPolling() {
+      if (progressPollTimer) clearInterval(progressPollTimer);
+      progressPollTimer = null;
+    }
+    function startProgressPolling(taskId) {
+      stopProgressPolling();
+      const poll = async () => {
+        try {
+          const data = await requestJson(`/api/progress?task_id=${encodeURIComponent(taskId)}`);
+          applyRemoteProgress(data.progress);
+        } catch (_) {
+          // 进度轮询只是增强显示，请求失败不打断主任务。
+        }
+      };
+      progressPollTimer = setInterval(poll, 1000);
+      poll();
+    }
+    async function waitForRemoteTask(taskId) {
+      startProgressPolling(taskId);
+      try {
+        while (true) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          const data = await requestJson(`/api/progress?task_id=${encodeURIComponent(taskId)}`);
+          const progress = data.progress || {};
+          applyRemoteProgress(progress);
+          if (progress.status === 'done') return progress;
+          if (progress.status === 'failed') throw new Error(progress.error || '批量任务失败');
+        }
+      } finally {
+        stopProgressPolling();
+      }
+    }
+    async function submitBatchTask(type, videoIds) {
+      const data = await requestJson('/api/batch-task', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_type: type, video_ids: videoIds}),
+      });
+      return data.task_id || data.job?.job_id;
     }
     function statusText(r) {
       const s = r.status || '';
+      if (s === 'transcribe_running') return '转录中';
+      if (s === 'analyze_running') return '分析中';
+      if (s === 'transcribe_failed' || s === 'analyze_failed') return '失败';
       if (s === 'no_speech') return '无口播';
       if (s === 'ignored') return '已忽略';
       if (s.includes('failed')) return '失败';
@@ -762,8 +1205,8 @@
       const creators = [...new Set(rows.map(r => r.creator_name).filter(Boolean))].sort();
       const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
       fillHarvestCategorySelect(cats);
-      for (const id of ['batchCreator','libCreator','detailCreator']) fillSelect(els[id], creators, '全部账号');
-      for (const id of ['batchCategory','libCategory','detailCategory']) fillSelect(els[id], cats, '全部分类');
+      for (const id of ['batchCreator','libCreator']) fillSelect(els[id], creators, '全部账号');
+      for (const id of ['batchCategory','libCategory']) fillSelect(els[id], cats, '全部分类');
       for (const id of ['batchStatus','libStatus','detailStatus']) fillStatusSelect(els[id]);
     }
     function matchesStatus(r, value) {
@@ -801,8 +1244,38 @@
         return sortByScore(a, b);
       });
     }
-    function detailRows() { return applyFilters(rows, 'detail').sort(sortByScore); }
     function sortByScore(a, b) { return Number(b.score || 0) - Number(a.score || 0); }
+    function creatorName(r) { return r.creator_name ? String(r.creator_name).trim() || '未知账号' : '未知账号'; }
+    function detailCreatorNames() {
+      return [...new Set(rows.map(creatorName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    }
+    function ensureDetailCreator() {
+      const creators = detailCreatorNames();
+      if (!creators.length) {
+        selectedDetailCreator = '';
+        return;
+      }
+      const current = selectedId ? rows.find(r => r.id === selectedId) : null;
+      const currentCreator = current ? creatorName(current) : '';
+      if (!selectedDetailCreator || !creators.includes(selectedDetailCreator)) selectedDetailCreator = currentCreator || creators[0];
+    }
+    function detailRows() {
+      ensureDetailCreator();
+      const keyword = (els.detailKeyword?.value || '').trim().toLowerCase();
+      const status = els.detailStatus?.value || '';
+      const sort = els.detailSort?.value || 'likes_desc';
+      const data = rows.filter(r => {
+        return creatorName(r) === selectedDetailCreator
+          && matchesStatus(r, status)
+          && (!keyword || rowText(r).includes(keyword));
+      });
+      return data.sort((a, b) => {
+        if (sort === 'likes_asc') return Number(a.like_count || 0) - Number(b.like_count || 0);
+        if (sort === 'score') return sortByScore(a, b);
+        if (sort === 'updated') return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        return Number(b.like_count || 0) - Number(a.like_count || 0);
+      });
+    }
     function renderSummary() {
       const creators = new Set(rows.map(r => r.creator_name).filter(Boolean));
       const downloaded = rows.filter(r => r.media_path).length;
@@ -820,16 +1293,16 @@
     }
     function renderStatusStrip() {
       const stats = [
-        ['总素材', rows.length, ''], ['可转录', rows.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech').length, 'cyan'],
-        ['可分析', rows.filter(r => r.transcript_text && !r.analysis_text).length, 'cyan'], ['已分析', rows.filter(r => r.analysis_text).length, 'green'],
+        ['总素材', rows.length, ''], ['可转录', rows.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running').length, 'cyan'],
+        ['可分析', rows.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running').length, 'cyan'], ['已分析', rows.filter(r => r.analysis_text).length, 'green'],
         ['无口播', rows.filter(r => r.status === 'no_speech').length, 'amber'], ['失败任务', failedTasks.length, 'red']
       ];
       els.statusStrip.innerHTML = stats.map(([label, value, cls]) => `<div class="mini-stat"><span>${label}</span><b class="${cls ? 'pill ' + cls : ''}">${fmt(value)}</b></div>`).join('');
     }
     function renderBatch() {
       const data = batchCandidates();
-      const canTranscribe = data.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech');
-      const canAnalyze = data.filter(r => r.transcript_text && !r.analysis_text);
+      const canTranscribe = data.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running');
+      const canAnalyze = data.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
       els.batchScope.textContent = `候选 ${fmt(data.length)} 条`;
       els.batchBreakdown.textContent = `转录 ${fmt(canTranscribe.length)} / 分析 ${fmt(canAnalyze.length)}`;
       els.batchPreview.innerHTML = data.length ? data.slice(0, 12).map(r => `
@@ -873,20 +1346,44 @@
     }
     function renderCompactList() {
       const data = detailRows();
-      if (!selectedId && data.length) selectedId = data[0].id;
+      ensureDetailCreator();
+      const creatorCounts = new Map();
+      for (const row of rows) creatorCounts.set(creatorName(row), (creatorCounts.get(creatorName(row)) || 0) + 1);
+      const creators = detailCreatorNames();
+      els.detailCreatorTags.innerHTML = creators.length ? creators.map(name => `
+        <button class="creator-tag ${name === selectedDetailCreator ? 'active' : ''}" type="button" data-detail-creator="${html(name)}" ${creatorColorStyle(name)}>
+          <span class="creator-tag-name">${html(name)}</span>
+          <span class="creator-tag-count">${fmt(creatorCounts.get(name) || 0)} 条</span>
+        </button>
+      `).join('') : '<div class="empty">暂无作者</div>';
+      if ((!selectedId || !data.some(r => r.id === selectedId)) && data.length) selectedId = data[0].id;
+      if (!data.length) selectedId = null;
       els.detailListCount.textContent = `${fmt(data.length)} 条`;
+      if (els.exportDetailListButton) els.exportDetailListButton.disabled = !data.length;
       els.compactList.innerHTML = data.length ? data.map(r => `
-        <div class="compact-card ${r.id === selectedId ? 'active' : ''}" data-compact="${Number(r.id)}" ${creatorColorStyle(r.creator_name)}>
+        <div class="compact-card content-tag ${r.id === selectedId ? 'active' : ''}" data-compact="${Number(r.id)}" ${creatorColorStyle(r.creator_name)}>
           <div class="compact-title">${html(r.title)}</div>
-          <div class="task-meta"><span>${html(r.creator_name)}</span><span>${fmt(r.like_count)} 赞</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
+          <div class="task-meta"><span class="score">${fmt(r.like_count)} 赞</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
         </div>`).join('') : '<div class="empty">暂无任务</div>';
       for (const item of els.compactList.querySelectorAll('[data-compact]')) item.onclick = () => { selectedId = Number(item.dataset.compact); renderDetail(); };
+      for (const item of els.detailCreatorTags.querySelectorAll('[data-detail-creator]')) item.onclick = () => {
+        selectedDetailCreator = item.dataset.detailCreator || '';
+        selectedId = null;
+        renderCompactList();
+      };
       renderDetail();
     }
     function transcriptParagraphs(text) {
       if (!text) return '<div class="muted">暂无转录文本</div>';
       const parts = String(text).split(/[。！？\n]+/).map(x => x.trim()).filter(Boolean);
       return (parts.length ? parts : [text]).map((p, i) => `<div class="paragraph"><span class="pill">${i + 1}</span> ${html(p)}${/[。！？]$/.test(p) ? '' : '。'}</div>`).join('');
+    }
+    function transcriptContent(text) {
+      if (transcriptViewMode === 'sentence') return transcriptParagraphs(text);
+      return text ? html(text) : '<div class="muted">暂无转录文本</div>';
+    }
+    function transcriptModeButtons() {
+      return `<div class="segmented" aria-label="转录文本查看模式"><button class="segment ${transcriptViewMode === 'raw' ? 'active' : ''}" type="button" data-transcript-mode="raw">原文</button><button class="segment ${transcriptViewMode === 'sentence' ? 'active' : ''}" type="button" data-transcript-mode="sentence">分句</button></div>`;
     }
     function parseAnalysis(r) {
       try { return r.analysis_json ? JSON.parse(r.analysis_json) : JSON.parse(r.analysis_text || '{}'); } catch (_) { return null; }
@@ -933,26 +1430,32 @@
     }
     function renderDetail() {
       const r = rows.find(x => x.id === selectedId);
-      if (!r) { els.detailMain.innerHTML = '<div class="empty">请选择一条素材查看详情。</div>'; return; }
+      if (!r) {
+        els.detailMain.innerHTML = '<div class="empty">请选择一条素材查看详情。</div>';
+        els.currentTaskBadge.textContent = '未选择';
+        els.currentTaskPanel.textContent = '暂无任务';
+        return;
+      }
       document.querySelectorAll('[data-compact]').forEach(x => x.classList.toggle('active', Number(x.dataset.compact) === selectedId));
       const comments = (r.top_comments || []).map(c => `<div class="comment"><div class="comment-likes">${fmt(c.like_count)} 赞</div><div>${html(c.content)}</div></div>`).join('');
       const actionsBlock = `<div class="text-box">视频 ID：${fmt(r.id)}\n来源：${html(r.source_url)}\n视频：${html(r.media_path)}\n音频：${html(r.audio_path)}</div>`;
       const analysisBlock = analysisBlocks(r);
       const commentsBlock = `<div class="comment-list">${comments || '<div class="muted">暂无评论</div>'}</div>`;
-      const transcriptBlock = `<div id="transcriptText" class="text-box transcript">${transcriptParagraphs(r.transcript_text)}</div>`;
+      const transcriptBlock = `<div id="transcriptText" class="text-box transcript transcript-${transcriptViewMode}">${transcriptContent(r.transcript_text)}</div>`;
       els.detailMain.innerHTML = `
         <section class="hero-detail">
           <div class="panel-head"><div><h2 class="hero-title">${html(r.title)}</h2><div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>${html(r.published_at)}</span></div></div><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
           <div class="metric-row"><div class="metric"><span>素材分</span><b>${fmt(r.score)}</b></div><div class="metric"><span>点赞</span><b>${fmt(r.like_count)}</b></div><div class="metric"><span>评论</span><b>${fmt(r.comment_count)}</b></div><div class="metric"><span>收藏</span><b>${fmt(r.favorite_count)}</b></div><div class="metric"><span>转发</span><b>${fmt(r.repost_count)}</b></div></div>
         </section>
         ${blockShell('actions', '操作', `<div class="inline-actions"><button type="button" data-transcribe="${Number(r.id)}">转录</button><button class="primary" type="button" data-analyze="${Number(r.id)}">AI 分析</button><button class="warn" type="button" data-nospeech="${Number(r.id)}">标记无口播</button><button class="danger" type="button" data-delete="${Number(r.id)}">删除</button></div>`, actionsBlock)}
-        ${blockShell('analysis', 'AI 爆款分析', '<button type="button" data-copy="analysis">复制分析</button>', analysisBlock)}
+        ${blockShell('transcript', '转录文本', `${transcriptModeButtons()}<button type="button" data-copy="transcript">复制文本</button>`, transcriptBlock)}
         ${blockShell('comments', '高赞评论', `<span class="pill">${fmt((r.top_comments || []).length)} 条</span>`, commentsBlock)}
-        ${blockShell('transcript', '转录文本', '<button type="button" data-copy="transcript">复制文本</button>', transcriptBlock)}`;
+        ${blockShell('analysis', 'AI 爆款分析', '<button type="button" data-copy="analysis">复制分析</button>', analysisBlock)}`;
       els.currentTaskBadge.textContent = statusText(r);
       els.currentTaskPanel.textContent = `账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
       bindCardButtons(els.detailMain);
       for (const btn of els.detailMain.querySelectorAll('[data-copy]')) btn.onclick = () => copyCurrent(btn.dataset.copy);
+      for (const btn of els.detailMain.querySelectorAll('[data-transcript-mode]')) btn.onclick = () => { transcriptViewMode = btn.dataset.transcriptMode || 'raw'; renderDetail(); };
       for (const btn of els.detailMain.querySelectorAll('[data-toggle-block]')) btn.onclick = () => toggleBlock(btn.dataset.toggleBlock);
     }
     function renderFailures() {
@@ -988,7 +1491,13 @@
         renderCompactList();
       }
     }
-    function openDetail(id) { selectedId = id; switchPage('detail'); renderAll(); }
+    function openDetail(id) {
+      selectedId = id;
+      const row = rows.find(r => r.id === selectedId);
+      if (row) selectedDetailCreator = creatorName(row);
+      switchPage('detail');
+      renderAll();
+    }
     function bindCardButtons(root) {
       for (const btn of root.querySelectorAll('[data-open]')) btn.onclick = e => { e.stopPropagation(); openDetail(Number(btn.dataset.open)); };
       for (const btn of root.querySelectorAll('[data-transcribe]')) btn.onclick = e => { e.stopPropagation(); transcribeVideo(Number(btn.dataset.transcribe)); };
@@ -1002,9 +1511,19 @@
     async function transcribeVideo(videoId) { await runSingle('transcribe', videoId); }
     async function analyzeVideo(videoId) { await runSingle('analyze', videoId); }
     async function runSingle(type, videoId) {
-      setBusy(true); setStatus(type === 'transcribe' ? '转录中：正在提交豆包语音 ASR。' : 'AI 分析中：正在等待豆包模型返回。');
-      try { await postTask(type, videoId); setStatus(type === 'transcribe' ? '转录完成。' : 'AI 分析完成。', 'ok'); }
-      catch (error) { setStatus(String(error.message || error), 'bad'); }
+      const label = type === 'transcribe' ? '单条转录' : '单条分析';
+      setBusy(true);
+      updateProgress(label, 0, 1, 0, 0);
+      setStatus(type === 'transcribe' ? `转录中：视频 #${videoId} 正在提交豆包语音 ASR。` : `AI 分析中：视频 #${videoId} 正在等待豆包模型返回。`);
+      try {
+        await postTask(type, videoId);
+        updateProgress(label, 1, 1, 1, 0);
+        setStatus(type === 'transcribe' ? '转录完成。' : 'AI 分析完成。', 'ok');
+      }
+      catch (error) {
+        updateProgress(label, 1, 1, 0, 1);
+        setStatus(String(error.message || error), 'bad');
+      }
       finally {
         try { await loadAll(); } catch (error) { setStatus(String(error.message || error), 'bad'); }
         setBusy(false);
@@ -1013,56 +1532,72 @@
     async function runBatch(type, explicitRows = null) {
       if (busy) return;
       const source = explicitRows || batchCandidates();
-      const candidates = source.filter(r => type === 'transcribe' ? r.media_path && !r.transcript_text && r.status !== 'no_speech' : r.transcript_text && !r.analysis_text);
+      const candidates = source.filter(r => type === 'transcribe' ? r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running' : r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
       if (!candidates.length) { setStatus(type === 'transcribe' ? '没有需要转录的候选视频。' : '没有需要分析的候选视频。'); return; }
-      setBusy(true); let success = 0; let fail = 0; updateProgress(type === 'transcribe' ? '批量转录' : '批量分析', 0, candidates.length, 0, 0);
+      const actionLabel = type === 'transcribe' ? '转录' : '分析';
+      setBusy(true); updateProgress(`批量${actionLabel}`, 0, candidates.length, 0, 0);
+      setStatus(`批量${actionLabel}任务已提交，后端将按受控并发处理 ${candidates.length} 条。`);
       try {
-        for (let i = 0; i < candidates.length; i += 1) {
-          const row = candidates[i]; setStatus(`${type === 'transcribe' ? '转录' : '分析'}：${row.creator_name || ''} #${row.id}`);
-          try { await postTask(type, row.id); success += 1; } catch (_) { fail += 1; }
-          updateProgress(row.title || `#${row.id}`, i + 1, candidates.length, success, fail);
-        }
-        await loadAll(); setStatus(`批量任务完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
-      } catch (error) { setStatus(String(error.message || error), 'bad'); }
-      finally { setBusy(false); }
+        const taskId = await submitBatchTask(type, candidates.map(row => row.id));
+        const progress = await waitForRemoteTask(taskId);
+        await loadAll();
+        setStatus(`批量${actionLabel}完成：成功 ${progress.success || 0} 条，失败 ${progress.fail || 0} 条。`, Number(progress.fail || 0) ? 'bad' : 'ok');
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+        await loadFailedTasks();
+      } finally {
+        setBusy(false);
+      }
     }
-    async function autoProcessHarvestedVideos(videoIds) {
+    async function autoProcessHarvestedVideos(videoIds, options = {}) {
+      const shouldTranscribe = Boolean(options.transcribe);
+      const shouldAnalyze = Boolean(options.analyze);
       const idSet = new Set((videoIds || []).map(Number).filter(Number.isFinite));
-      if (!idSet.size) { setStatus('采集完成，但没有本次入库的视频可转录分析。', 'ok'); return; }
-      let transcribeSuccess = 0; let transcribeFail = 0; let analyzeSuccess = 0; let analyzeFail = 0;
+      if (!idSet.size) { setStatus('采集完成，但没有本次入库的视频可处理。', 'ok'); return; }
+      if (!shouldTranscribe && !shouldAnalyze) return;
+      let transcribeSummary = null;
+      let analyzeSummary = null;
 
-      setStatus('采集完成：正在准备本次视频转录。');
       await loadAll();
       let scoped = rows.filter(r => idSet.has(Number(r.id)));
-      const transcribeTargets = scoped.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech');
-      updateProgress('采集后自动转录', 0, transcribeTargets.length, 0, 0);
-      for (let i = 0; i < transcribeTargets.length; i += 1) {
-        const row = transcribeTargets[i];
-        setStatus(`自动转录 ${i + 1}/${transcribeTargets.length}：${row.creator_name || ''} #${row.id}`);
-        try { await postTask('transcribe', row.id); transcribeSuccess += 1; } catch (_) { transcribeFail += 1; }
-        updateProgress(row.title || `#${row.id}`, i + 1, transcribeTargets.length, transcribeSuccess, transcribeFail);
+      if (shouldTranscribe) {
+        const transcribeTargets = scoped.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running');
+        if (transcribeTargets.length) {
+          setStatus(`采集完成：已提交 ${transcribeTargets.length} 条自动转录任务。`);
+          updateProgress('采集后自动转录', 0, transcribeTargets.length, 0, 0);
+          const taskId = await submitBatchTask('transcribe', transcribeTargets.map(row => row.id));
+          transcribeSummary = await waitForRemoteTask(taskId);
+          await loadAll();
+          scoped = rows.filter(r => idSet.has(Number(r.id)));
+        } else {
+          transcribeSummary = {success: 0, fail: 0};
+        }
       }
 
-      setStatus('转录阶段完成：正在准备 AI 分析。');
-      await loadAll();
-      scoped = rows.filter(r => idSet.has(Number(r.id)));
-      const analyzeTargets = scoped.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'no_speech');
-      updateProgress('采集后自动分析', 0, analyzeTargets.length, 0, 0);
-      for (let i = 0; i < analyzeTargets.length; i += 1) {
-        const row = analyzeTargets[i];
-        setStatus(`自动分析 ${i + 1}/${analyzeTargets.length}：${row.creator_name || ''} #${row.id}`);
-        try { await postTask('analyze', row.id); analyzeSuccess += 1; } catch (_) { analyzeFail += 1; }
-        updateProgress(row.title || `#${row.id}`, i + 1, analyzeTargets.length, analyzeSuccess, analyzeFail);
+      if (shouldAnalyze) {
+        const analyzeTargets = scoped.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'no_speech' && r.status !== 'analyze_running');
+        if (analyzeTargets.length) {
+          setStatus(`正在提交 ${analyzeTargets.length} 条自动分析任务。`);
+          updateProgress('采集后自动分析', 0, analyzeTargets.length, 0, 0);
+          const taskId = await submitBatchTask('analyze', analyzeTargets.map(row => row.id));
+          analyzeSummary = await waitForRemoteTask(taskId);
+        } else {
+          analyzeSummary = {success: 0, fail: 0};
+        }
       }
 
       await loadAll();
-      setStatus(`采集后自动处理完成：转录成功 ${transcribeSuccess} 条、失败 ${transcribeFail} 条；分析成功 ${analyzeSuccess} 条、失败 ${analyzeFail} 条。`, (transcribeFail || analyzeFail) ? 'bad' : 'ok');
+      const summaryParts = [];
+      if (shouldTranscribe) summaryParts.push(`转录成功 ${Number(transcribeSummary?.success || 0)} 条、失败 ${Number(transcribeSummary?.fail || 0)} 条`);
+      if (shouldAnalyze) summaryParts.push(`分析成功 ${Number(analyzeSummary?.success || 0)} 条、失败 ${Number(analyzeSummary?.fail || 0)} 条`);
+      const hasFail = Number(transcribeSummary?.fail || 0) || Number(analyzeSummary?.fail || 0);
+      setStatus(`采集后自动处理完成：${summaryParts.join('；')}。`, hasFail ? 'bad' : 'ok');
     }
     async function updateVideoStatus(videoId, status) {
       if (busy) return;
-      setBusy(true); setStatus('状态更新中，请稍候。');
-      try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, status}) }); await loadAll(); setStatus('状态已更新。', 'ok'); }
-      catch (error) { setStatus(String(error.message || error), 'bad'); }
+      setBusy(true); updateProgress('状态更新', 0, 1, 0, 0); setStatus('状态更新中，请稍候。');
+      try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, status}) }); updateProgress('状态更新', 1, 1, 1, 0); await loadAll(); setStatus('状态已更新。', 'ok'); }
+      catch (error) { updateProgress('状态更新', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); }
       finally { setBusy(false); }
     }
     async function deleteVideoAction(videoId) {
@@ -1071,39 +1606,40 @@
       const deleteFiles = confirm(`确认删除「${row?.title || videoId}」吗？\n\n点击“确定”只删除数据库记录。\n如需同时删除本地文件，请下一步确认。`);
       if (!deleteFiles) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？\n选择“取消”则只删除数据库记录。');
-      setBusy(true); setStatus('删除素材中，请稍候。');
-      try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) }); selectedIds.delete(videoId); if (selectedId === videoId) selectedId = null; await loadAll(); setStatus('视频已删除。', 'ok'); }
-      catch (error) { setStatus(String(error.message || error), 'bad'); }
+      setBusy(true); updateProgress('删除素材', 0, 1, 0, 0); setStatus('删除素材中，请稍候。');
+      try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) }); updateProgress('删除素材', 1, 1, 1, 0); selectedIds.delete(videoId); if (selectedId === videoId) selectedId = null; await loadAll(); setStatus('视频已删除。', 'ok'); }
+      catch (error) { updateProgress('删除素材', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); }
       finally { setBusy(false); }
     }
     async function deleteRows(data) {
       if (!data.length) return;
       if (!confirm(`确认删除 ${data.length} 条素材吗？`)) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？');
-      setBusy(true); setStatus('批量删除中，请稍候。'); let success = 0; let fail = 0;
+      setBusy(true); setStatus('批量删除中，请稍候。'); let success = 0; let fail = 0; updateProgress('批量删除', 0, data.length, 0, 0);
       try {
-        for (const row of data) { setStatus(`删除：${row.creator_name || ''} #${row.id}`); try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } }
+        for (let i = 0; i < data.length; i += 1) { const row = data[i]; const progressLabel = `删除 ${i + 1}/${data.length}`; updateProgress(progressLabel, i, data.length, success, fail); setStatus(`${progressLabel}：视频 #${row.id} 正在处理。`); try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } updateProgress(progressLabel, i + 1, data.length, success, fail); }
         selectedIds.clear(); await loadAll(); setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
       } finally { setBusy(false); }
     }
     async function markRowsNoSpeech(data) {
       if (!data.length) return;
       if (!confirm(`确认把 ${data.length} 条候选素材标记为无口播？`)) return;
-      setBusy(true); setStatus('批量标记无口播中，请稍候。'); let success = 0; let fail = 0;
+      setBusy(true); setStatus('批量标记无口播中，请稍候。'); let success = 0; let fail = 0; updateProgress('批量标记无口播', 0, data.length, 0, 0);
       try {
-        for (const row of data) { setStatus(`标记无口播：${row.creator_name || ''} #${row.id}`); try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, status: 'no_speech'}) }); success += 1; } catch (_) { fail += 1; } }
+        for (let i = 0; i < data.length; i += 1) { const row = data[i]; const progressLabel = `标记无口播 ${i + 1}/${data.length}`; updateProgress(progressLabel, i, data.length, success, fail); setStatus(`${progressLabel}：视频 #${row.id} 正在处理。`); try { await requestJson('/api/video/status', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, status: 'no_speech'}) }); success += 1; } catch (_) { fail += 1; } updateProgress(progressLabel, i + 1, data.length, success, fail); }
         await loadAll(); setStatus(`标记完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
       } finally { setBusy(false); }
     }
     function selectedRows() { return rows.filter(r => selectedIds.has(r.id)); }
     async function retryFailedTask(task) {
-      if (!task || busy) return; setBusy(true); setStatus(`手动重试：${taskLabel(task.task_type)}`);
+      if (!task || busy) return; setBusy(true); updateProgress(`重试${taskLabel(task.task_type)}`, 0, 1, 0, 0); setStatus(`手动重试：${taskLabel(task.task_type)}`);
       try {
         if (task.task_type === 'harvest') await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(task.payload || {}) });
         else if (task.task_type === 'transcribe') await postTask('transcribe', task.video_id || task.payload?.video_id);
         else if (task.task_type === 'analyze') await postTask('analyze', task.video_id || task.payload?.video_id);
+        updateProgress(`重试${taskLabel(task.task_type)}`, 1, 1, 1, 0);
         setStatus('手动重试成功。', 'ok');
-      } catch (error) { setStatus(String(error.message || error), 'bad'); }
+      } catch (error) { updateProgress(`重试${taskLabel(task.task_type)}`, 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); }
       finally {
         try { await loadAll(); } catch (error) { setStatus(String(error.message || error), 'bad'); }
         setBusy(false);
@@ -1111,9 +1647,9 @@
     }
     async function ignoreFailedTask(taskId) {
       if (busy) return;
-      setBusy(true); setStatus('忽略失败任务中，请稍候。');
-      try { await requestJson('/api/failed-tasks/ignore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({task_id: taskId}) }); await loadAll(); }
-      catch (error) { setStatus(String(error.message || error), 'bad'); }
+      setBusy(true); updateProgress('忽略失败任务', 0, 1, 0, 0); setStatus('忽略失败任务中，请稍候。');
+      try { await requestJson('/api/failed-tasks/ignore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({task_id: taskId}) }); updateProgress('忽略失败任务', 1, 1, 1, 0); await loadAll(); }
+      catch (error) { updateProgress('忽略失败任务', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); }
       finally { setBusy(false); }
     }
     async function markFailedNoSpeech(taskId) {
@@ -1129,32 +1665,104 @@
       const text = kind === 'analysis' ? (r.analysis_text || '') : (r.transcript_text || '');
       navigator.clipboard?.writeText(text); setStatus('内容已复制。', 'ok');
     }
+    function mdText(value) {
+      return safe(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim() || '暂无';
+    }
+    function fileSafeName(value) {
+      return safe(value).replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 60) || 'douyin_export';
+    }
+    function exportDetailList() {
+      const data = detailRows();
+      if (!data.length) { setStatus('当前内容列表为空，无法导出。', 'bad'); return; }
+      const lines = [
+        `# ${mdText(selectedDetailCreator)} 内容导出`,
+        '',
+        `- 导出时间：${new Date().toLocaleString('zh-CN')}`,
+        `- 当前状态筛选：${els.detailStatus?.selectedOptions?.[0]?.textContent || '全部状态'}`,
+        `- 当前排序：${els.detailSort?.selectedOptions?.[0]?.textContent || '点赞从高到低'}`,
+        `- 内容数量：${data.length}`,
+        '',
+      ];
+      data.forEach((r, index) => {
+        const comments = Array.isArray(r.top_comments) ? r.top_comments : [];
+        lines.push(
+          `## ${index + 1}. ${mdText(r.title)}`,
+          '',
+          '### 数据',
+          '',
+          `- 作者：${mdText(r.creator_name)}`,
+          `- 分类：${mdText(r.category)}`,
+          `- 状态：${statusText(r)}`,
+          `- 发布时间：${mdText(r.published_at)}`,
+          `- 素材分：${fmt(r.score)}`,
+          `- 点赞：${fmt(r.like_count)}`,
+          `- 评论：${fmt(r.comment_count)}`,
+          `- 收藏：${fmt(r.favorite_count)}`,
+          `- 转发：${fmt(r.repost_count)}`,
+          `- 来源：${mdText(r.source_url)}`,
+          '',
+          '### 原始文案',
+          '',
+          mdText(r.description),
+          '',
+          '### 转录文本',
+          '',
+          mdText(r.transcript_text),
+          '',
+          '### 高赞评论',
+          ''
+        );
+        if (comments.length) {
+          comments.forEach((comment, commentIndex) => {
+            lines.push(`${commentIndex + 1}. ${fmt(comment.like_count)} 赞：${mdText(comment.content)}`);
+          });
+        } else {
+          lines.push('暂无');
+        }
+        lines.push('');
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${fileSafeName(selectedDetailCreator)}_内容导出_${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      link.remove();
+      setStatus(`已导出 ${data.length} 条内容。`, 'ok');
+    }
     function attachEvents() {
       document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
       els.harvestForm.addEventListener('submit', async event => {
-        event.preventDefault(); setBusy(true); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
-        const shouldAutoProcess = els.autoProcessAfterHarvest.checked;
-        if (shouldAutoProcess) els.download.checked = true;
-        const payload = { target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
+        event.preventDefault(); setBusy(true); resetProgress('账号采集'); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
+        const shouldAutoTranscribe = els.autoTranscribeAfterHarvest.checked;
+        const shouldAutoAnalyze = els.autoAnalyzeAfterHarvest.checked;
+        if (shouldAutoTranscribe || shouldAutoAnalyze) els.download.checked = true;
+        const taskId = makeTaskId('harvest');
+        startProgressPolling(taskId);
+        const payload = { task_id: taskId, target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
         try {
           const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
           const fetched = data.result.fetched_video_count ?? data.result.video_count;
+          stopProgressPolling();
+          updateProgress('账号采集完成', 1, 1, 1, 0);
           setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok');
           await loadAll();
-          if (shouldAutoProcess) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || []);
+          if (shouldAutoTranscribe || shouldAutoAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldAutoTranscribe, analyze: shouldAutoAnalyze });
         }
-        catch (error) { setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
-        finally { setBusy(false); }
+        catch (error) { stopProgressPolling(); updateProgress('账号采集失败', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
+        finally { stopProgressPolling(); setBusy(false); }
       });
       els.categorySelect.addEventListener('change', () => updateCustomCategoryVisibility(true));
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
       for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
-      for (const id of ['detailKeyword','detailCreator','detailCategory','detailStatus']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
+      for (const id of ['detailKeyword','detailStatus','detailSort']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
       els.batchTranscribeButton.onclick = () => runBatch('transcribe');
       els.batchAnalyzeButton.onclick = () => runBatch('analyze');
       els.batchNoSpeechButton.onclick = () => markRowsNoSpeech(batchCandidates());
       els.batchDeleteButton.onclick = () => deleteRows(batchCandidates());
       els.refreshButton.onclick = () => loadAll().catch(e => setStatus(e.message, 'bad'));
+      els.selectAllButton.onclick = () => { for (const r of rows) selectedIds.add(r.id); renderLibrary(); };
       els.selectVisibleButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
       els.clearSelectionButton.onclick = () => { selectedIds.clear(); renderLibrary(); };
       els.selectedTranscribeButton.onclick = () => runBatch('transcribe', selectedRows());
@@ -1163,15 +1771,19 @@
       els.refreshFailedButton.onclick = () => loadFailedTasks().catch(e => setStatus(e.message, 'bad'));
       els.refreshFailedButton2.onclick = () => loadFailedTasks().catch(e => setStatus(e.message, 'bad'));
       els.refreshLogsButton.onclick = () => loadLogs().catch(e => setStatus(e.message, 'bad'));
+      els.exportDetailListButton.onclick = exportDetailList;
       els.toggleLeftRail.onclick = () => { leftRailCollapsed = !leftRailCollapsed; renderRails(); };
       els.toggleRightRail.onclick = () => { rightRailOpen = !rightRailOpen; renderRails(); };
     }
     bind();
     attachEvents();
     renderRails();
-    const initialPage = new URLSearchParams(location.search).get('page');
-    if (['workbench', 'library', 'detail', 'failures'].includes(initialPage)) switchPage(initialPage);
-    loadAll().catch(e => setStatus(e.message, 'bad'));
+    const initialPage = new URLSearchParams(location.search).get('page') || location.hash.replace('#', '');
+    loadAll()
+      .then(() => {
+        if (['workbench', 'library', 'detail', 'failures'].includes(initialPage)) switchPage(initialPage);
+      })
+      .catch(e => setStatus(e.message, 'bad'));
   </script>
 </body>
 </html>

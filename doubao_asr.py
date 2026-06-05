@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import ssl
 import subprocess
 import time
@@ -29,6 +30,18 @@ def run_command(args: list[str], timeout: int | None = None) -> subprocess.Compl
         raise RuntimeError(f"命令执行失败：{' '.join(args)}\nSTDERR: {stderr[-2000:]}\nSTDOUT: {stdout[-1000:]}") from e
 
 
+def ffmpeg_executable() -> str:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        return ffmpeg
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as e:
+        raise RuntimeError("缺少 ffmpeg。请安装系统 ffmpeg，或安装 Python 依赖 imageio-ffmpeg。") from e
+
+
 def extract_audio_for_asr(media_path: str | Path, video_id: int) -> Path:
     media = Path(media_path)
     if not media.exists():
@@ -37,7 +50,7 @@ def extract_audio_for_asr(media_path: str | Path, video_id: int) -> Path:
     out = ASR_AUDIO_DIR / f"video_{video_id}.mp3"
     run_command(
         [
-            "ffmpeg",
+            ffmpeg_executable(),
             "-y",
             "-i",
             str(media),

@@ -6,7 +6,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote, urlencode
 import httpx
 from app_logging import log_event
@@ -29,7 +29,23 @@ SEC_UID_RE = re.compile(r"^MS4w[\w.-]+")
 URL_RE = re.compile(r"https?://")
 
 
+def load_local_env() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def require_cookie() -> str:
+    load_local_env()
     cookie = os.environ.get("DOUYIN_COOKIE", "").strip()
     if not cookie:
         ms_token = TokenManager.gen_real_msToken()
@@ -89,25 +105,72 @@ def next_cursor(payload: dict) -> int:
     return 0
 
 
-def extract_video_urls(video: dict) -> list[str]:
-    urls: list[str] = []
+def extract_video_url_candidates(video: dict) -> list[dict]:
+    candidates: list[dict] = []
+    sequence = 0
     for br in video.get("bit_rate") or []:
         play = br.get("play_addr") or br.get("playAddr") or {}
-        for u in play.get("url_list") or play.get("urlList") or []:
-            if isinstance(u, str) and u not in urls:
-                urls.append(u)
+        data_size = safe_int(play.get("data_size") or play.get("dataSize"), 0)
+        bit_rate = safe_int(br.get("bit_rate") or br.get("bitRate"), 0)
+        quality = br.get("quality_type") or br.get("qualityType")
+        for url in play.get("url_list") or play.get("urlList") or []:
+            if not isinstance(url, str) or not url:
+                continue
+            candidates.append({
+                "url": url,
+                "data_size": data_size,
+                "bit_rate": bit_rate,
+                "quality": quality,
+                "source": "bit_rate",
+                "sequence": sequence,
+            })
+            sequence += 1
     play_addr = video.get("play_addr") or video.get("playAddr") or {}
-    for u in play_addr.get("url_list") or play_addr.get("urlList") or []:
-        if isinstance(u, str) and u not in urls:
-            urls.append(u)
-    return urls
+    fallback_size = safe_int(play_addr.get("data_size") or play_addr.get("dataSize"), 0)
+    for url in play_addr.get("url_list") or play_addr.get("urlList") or []:
+        if not isinstance(url, str) or not url:
+            continue
+        candidates.append({
+            "url": url,
+            "data_size": fallback_size,
+            "bit_rate": 0,
+            "quality": None,
+            "source": "play_addr",
+            "sequence": sequence,
+        })
+        sequence += 1
+
+    def sort_key(item: dict) -> tuple[int, int, int, int]:
+        data_size = safe_int(item.get("data_size"), 0)
+        bit_rate = safe_int(item.get("bit_rate"), 0)
+        return (
+            0 if data_size > 0 else 1,
+            data_size if data_size > 0 else 10**18,
+            bit_rate if bit_rate > 0 else 10**18,
+            safe_int(item.get("sequence"), 0),
+        )
+
+    deduped: list[dict] = []
+    seen = set()
+    for item in sorted(candidates, key=sort_key):
+        url = item["url"]
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(item)
+    return deduped
+
+
+def extract_video_urls(video: dict) -> list[str]:
+    return [item["url"] for item in extract_video_url_candidates(video)]
 
 
 def normalize_video(item: dict) -> dict:
     stats = item.get("statistics") or item.get("stats") or {}
     author = item.get("author") or {}
     video = item.get("video") or {}
-    url_list = extract_video_urls(video)
+    url_candidates = extract_video_url_candidates(video)
+    url_list = [candidate["url"] for candidate in url_candidates]
     return {
         "aweme_id": get_aweme_id(item),
         "desc": safe_text(item.get("desc") or item.get("caption")),
@@ -120,6 +183,10 @@ def normalize_video(item: dict) -> dict:
         "collect_count": stats.get("collect_count") or stats.get("collectCount"),
         "play_count": stats.get("play_count") or stats.get("playCount"),
         "download_urls": url_list,
+        "download_candidates": [
+            {k: v for k, v in candidate.items() if k != "url"}
+            for candidate in url_candidates
+        ],
         "raw": item,
     }
 
@@ -278,25 +345,75 @@ async def search_user_candidates(keyword: str, limit: int = 10) -> list[dict]:
     return candidates
 
 
-async def fetch_all_posts(crawler: DouyinWebCrawler, sec_user_id: str, page_size: int, max_pages: int | None) -> list[dict]:
+async def fetch_all_posts(
+    crawler: DouyinWebCrawler,
+    sec_user_id: str,
+    page_size: int,
+    max_pages: int | None,
+    progress_callback: Callable[..., None] | None = None,
+) -> list[dict]:
+    def progress(**updates: object) -> None:
+        if progress_callback:
+            progress_callback(**updates)
+
     cursor = 0
     page = 0
     videos = []
     seen = set()
     while True:
         page += 1
+        progress(
+            stage="posts",
+            label=f"拉取作品列表：正在请求第 {page} 页，已发现 {len(videos)} 条",
+            done=len(videos),
+            total=0,
+            success=len(videos),
+            fail=0,
+            page=page,
+            page_size=page_size,
+            cursor=cursor,
+            status="running",
+        )
         payload = await crawler.fetch_user_post_videos(sec_user_id, cursor, page_size)
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         (RAW_DIR / f"posts_page_{page}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         items = extract_aweme_list(payload)
+        before_count = len(videos)
         for item in items:
             aweme_id = get_aweme_id(item)
             if aweme_id and aweme_id not in seen:
                 seen.add(aweme_id)
                 videos.append(normalize_video(item))
-        if not has_more(payload):
+        page_has_more = has_more(payload)
+        current_cursor = next_cursor(payload)
+        progress(
+            stage="posts",
+            label=f"拉取作品列表：第 {page} 页完成，新增 {len(videos) - before_count} 条，累计 {len(videos)} 条",
+            done=len(videos),
+            total=0,
+            success=len(videos),
+            fail=0,
+            page=page,
+            page_size=page_size,
+            page_items=len(items),
+            cursor=current_cursor,
+            has_more=page_has_more,
+            status="running",
+        )
+        log_event(
+            LOGGER,
+            "harvest.posts_page",
+            sec_user_id=sec_user_id,
+            page=page,
+            page_items=len(items),
+            new_items=len(videos) - before_count,
+            total_items=len(videos),
+            has_more=page_has_more,
+            cursor=current_cursor,
+        )
+        if not page_has_more:
             break
-        cursor = next_cursor(payload)
+        cursor = current_cursor
         if not cursor:
             break
         if max_pages and page >= max_pages:
@@ -315,11 +432,24 @@ async def download_video_file(headers: dict, video: dict) -> str | None:
         return str(out)
     async with httpx.AsyncClient(headers=headers["headers"], proxies=headers.get("proxies"), timeout=60, follow_redirects=True) as client:
         last_error = None
-        for url in urls:
+        candidates = video.get("download_candidates") or []
+        for index, url in enumerate(urls):
             try:
+                candidate = candidates[index] if index < len(candidates) and isinstance(candidates[index], dict) else {}
+                log_event(
+                    LOGGER,
+                    "harvest.video_download_try",
+                    aweme_id=aweme_id,
+                    candidate=index + 1,
+                    data_size=candidate.get("data_size"),
+                    bit_rate=candidate.get("bit_rate"),
+                    quality=candidate.get("quality"),
+                    source=candidate.get("source"),
+                )
                 response = await client.get(url)
                 if response.status_code < 400 and response.content:
                     out.write_bytes(response.content)
+                    log_event(LOGGER, "harvest.video_download_success", aweme_id=aweme_id, bytes=len(response.content), candidate=index + 1)
                     return str(out)
                 last_error = f"HTTP {response.status_code}"
             except Exception as e:
@@ -342,19 +472,27 @@ async def harvest_target(
     download: bool = False,
     min_likes: int = 0,
     top_videos: int | None = None,
+    progress_callback: Callable[..., None] | None = None,
 ) -> dict:
+    def progress(**updates: object) -> None:
+        if progress_callback:
+            progress_callback(**updates)
+
     require_cookie()
     crawler = DouyinWebCrawler()
+    progress(stage="resolve", label="解析账号", done=0, total=0, success=0, fail=0, status="running")
     sec_user_id, resolution = await resolve_sec_user_id(crawler, target)
     log_event(LOGGER, "harvest.resolve", target=target, sec_user_id=sec_user_id, used_search=bool(resolution))
     profile_error = None
     try:
+        progress(stage="profile", label="读取账号资料", done=0, total=0, success=0, fail=0, status="running")
         creator = await fetch_creator_profile(crawler, sec_user_id)
     except Exception as e:
         creator = normalize_creator({}, sec_user_id)
         profile_error = f"{type(e).__name__}: {e}"
         log_event(LOGGER, "harvest.profile_failure", sec_user_id=sec_user_id, error=profile_error)
-    all_videos = await fetch_all_posts(crawler, sec_user_id, page_size, max_pages)
+    progress(stage="posts", label="拉取作品列表", done=0, total=0, success=0, fail=0, status="running")
+    all_videos = await fetch_all_posts(crawler, sec_user_id, page_size, max_pages, progress_callback=progress)
     videos = [video for video in all_videos if safe_int(video.get("digg_count")) >= min_likes]
     videos.sort(key=lambda video: safe_int(video.get("digg_count")), reverse=True)
     if top_videos:
@@ -364,25 +502,40 @@ async def harvest_target(
         creator = creator_from_videos(videos or all_videos, sec_user_id)
 
     headers = await crawler.get_douyin_headers()
-    for video in videos:
+    progress(stage="videos", label="处理作品", done=0, total=len(videos), success=0, fail=0, status="running")
+    video_success = 0
+    video_fail = 0
+    for index, video in enumerate(videos, start=1):
         aweme_id = video["aweme_id"]
+        progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index - 1, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
+        item_failed = False
         if download:
             try:
                 video["media_path"] = await download_video_file(headers, video)
             except Exception as e:
                 video["download_error"] = f"{type(e).__name__}: {e}"
+                item_failed = True
                 log_event(LOGGER, "harvest.video_download_failure", aweme_id=aweme_id, error=video["download_error"])
         if not aweme_id:
             video["top_comments"] = []
             video["comment_error"] = "missing aweme_id"
+            item_failed = True
             log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
+            video_fail += 1
+            progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
             continue
         try:
             video["top_comments"] = await fetch_top_comments(crawler, aweme_id, top_comments)
         except Exception as e:
             video["top_comments"] = []
             video["comment_error"] = f"{type(e).__name__}: {e}"
+            item_failed = True
             log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
+        if item_failed:
+            video_fail += 1
+        else:
+            video_success += 1
+        progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
 
     result = {
         "target": target,
@@ -405,6 +558,7 @@ async def harvest_target(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     result["output"] = str(out)
+    progress(stage="done", label="账号采集完成", done=len(videos), total=len(videos), success=video_success, fail=video_fail, status="done")
     return result
 
 
