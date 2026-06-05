@@ -371,6 +371,14 @@ def start_wechat_channels_service() -> dict:
         )
         log_event(LOGGER, "wechat.service_start", pid=WECHAT_PROCESS.pid, command=command, log_path=str(WECHAT_PROCESS_LOG))
         time.sleep(1.5)
+        if WECHAT_PROCESS.poll() is not None:
+            recent_log = tail_text(WECHAT_PROCESS_LOG)
+            error_hint = recent_log.splitlines()[-12:]
+            raise RuntimeError(
+                "wx_channels_download 启动后立即退出。"
+                "常见原因是首次安装证书需要管理员权限。"
+                f"最近日志：{' | '.join(error_hint)}"
+            )
         return {"ok": True, "already_running": False, "status": check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL), "process": wechat_process_info()}
 
 
@@ -390,6 +398,14 @@ def stop_wechat_channels_service() -> dict:
         log_event(LOGGER, "wechat.service_stop", pid=proc.pid, returncode=proc.returncode)
         WECHAT_PROCESS = None
         return {"ok": True, "stopped": True, "process": wechat_process_info()}
+
+
+def tail_text(path: Path, limit: int = 4000) -> str:
+    try:
+        data = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    return data[-limit:]
 
 
 def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
