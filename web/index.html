@@ -294,6 +294,24 @@
     }
     .compact-card.active { border-color: transparent; outline: 1px solid rgba(87, 214, 141, 0.58); outline-offset: -1px; box-shadow: inset 4px 0 0 var(--creator-accent, rgba(87, 214, 141, 0.65)), 0 0 0 1px rgba(87, 214, 141, 0.10); }
     .compact-title { font-size: 14px; font-weight: 760; line-height: 1.48; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .creator-update-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, var(--panel), var(--panel-3));
+      box-shadow: var(--shadow-ring), var(--shadow-soft);
+    }
+    .creator-update-card[hidden] { display: none; }
+    .creator-update-main { display: grid; gap: 8px; min-width: 0; }
+    .creator-update-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .creator-update-title strong { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .creator-update-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
+    .creator-update-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
     .content-tag {
       min-height: 72px;
       padding: 10px;
@@ -856,6 +874,20 @@
                 </select>
               </div>
             </div>
+            <div id="libraryCreatorCard" class="creator-update-card" hidden>
+              <div class="creator-update-main">
+                <div class="creator-update-title">
+                  <strong id="libraryCreatorName">未选择账号</strong>
+                  <span id="libraryCreatorIdBadge" class="pill">无账号 ID</span>
+                </div>
+                <div id="libraryCreatorMeta" class="creator-update-meta"></div>
+              </div>
+              <div class="creator-update-actions">
+                <button id="updateCreatorButton" class="primary" type="button" disabled>更新全部作品</button>
+                <label class="toggle"><input id="updateCreatorTranscribe" type="checkbox" checked /> 转录</label>
+                <label class="toggle"><input id="updateCreatorAnalyze" type="checkbox" /> 分析</label>
+              </div>
+            </div>
           </section>
           <div class="toolbar"><span id="libraryCount" class="pill">0 条</span><span id="selectedCount" class="pill cyan">已选 0 条</span></div>
           <section id="cardGrid" class="card-grid"></section>
@@ -969,7 +1001,7 @@
         'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','runButton','status','refreshButton',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
-        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
+        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
         'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailStatus','detailSort','detailCreatorTags','detailListCount','compactList','exportDetailListButton','detailMain','currentTaskBadge','currentTaskPanel',
         'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText','loadingProgressLabel','loadingProgressCount','loadingProgressTrack','loadingProgressFill','loadingProgressSuccess','loadingProgressFail'
       ]) els[id] = document.getElementById(id);
@@ -1044,9 +1076,10 @@
         if (els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
         if (!els.loadingProgressLabel?.textContent || els.loadingProgressLabel.textContent === '未开始') resetProgress('准备中');
       }
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest']) {
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton']) {
         if (els[id]) els[id].disabled = value;
       }
+      if (!value && currentPage === 'library') renderLibraryCreatorCard();
     }
     function updateProgress(label, done, total, success, fail) {
       els.progressLabel.textContent = label;
@@ -1244,6 +1277,46 @@
         return sortByScore(a, b);
       });
     }
+    function selectedLibraryCreatorProfile() {
+      const creator = els.libCreator?.value || '';
+      if (!creator) return null;
+      const category = els.libCategory?.value || '';
+      const scoped = rows.filter(r => r.creator_name === creator && (!category || r.category === category));
+      if (!scoped.length) return null;
+      const secUserId = scoped.map(r => r.creator_sec_user_id).find(Boolean) || '';
+      const profileUrl = scoped.map(r => r.creator_profile_url).find(Boolean) || '';
+      return {
+        creator,
+        category: category || scoped[0].category || '未分类',
+        secUserId,
+        profileUrl,
+        total: scoped.length,
+        downloaded: scoped.filter(r => r.media_path).length,
+        transcribed: scoped.filter(r => r.transcript_text).length,
+        analyzed: scoped.filter(r => r.analysis_text).length,
+        noSpeech: scoped.filter(r => r.status === 'no_speech').length,
+      };
+    }
+    function renderLibraryCreatorCard() {
+      const profile = selectedLibraryCreatorProfile();
+      if (!profile) {
+        els.libraryCreatorCard.hidden = true;
+        return;
+      }
+      els.libraryCreatorCard.hidden = false;
+      els.libraryCreatorName.textContent = profile.creator;
+      els.libraryCreatorIdBadge.textContent = profile.secUserId ? `ID ${profile.secUserId.slice(0, 12)}...` : '无账号 ID';
+      els.libraryCreatorIdBadge.className = 'pill' + (profile.secUserId ? ' green' : ' amber');
+      els.updateCreatorButton.disabled = !profile.secUserId || busy;
+      els.libraryCreatorMeta.innerHTML = [
+        `分类 ${html(profile.category)}`,
+        `素材 ${fmt(profile.total)}`,
+        `已下载 ${fmt(profile.downloaded)}`,
+        `已转录 ${fmt(profile.transcribed)}`,
+        `已分析 ${fmt(profile.analyzed)}`,
+        `无口播 ${fmt(profile.noSpeech)}`,
+      ].map(text => `<span class="pill">${text}</span>`).join('');
+    }
     function sortByScore(a, b) { return Number(b.score || 0) - Number(a.score || 0); }
     function creatorName(r) { return r.creator_name ? String(r.creator_name).trim() || '未知账号' : '未知账号'; }
     function detailCreatorNames() {
@@ -1328,6 +1401,7 @@
     }
     function renderLibrary() {
       const data = libraryRows();
+      renderLibraryCreatorCard();
       els.libraryCount.textContent = `${fmt(data.length)} 条`;
       els.selectedCount.textContent = `已选 ${fmt(selectedIds.size)} 条`;
       els.cardGrid.innerHTML = data.length ? data.map(cardHtml).join('') : '<div class="empty">暂无素材</div>';
@@ -1593,6 +1667,50 @@
       const hasFail = Number(transcribeSummary?.fail || 0) || Number(analyzeSummary?.fail || 0);
       setStatus(`采集后自动处理完成：${summaryParts.join('；')}。`, hasFail ? 'bad' : 'ok');
     }
+    async function updateSelectedCreator() {
+      if (busy) return;
+      const profile = selectedLibraryCreatorProfile();
+      if (!profile || !profile.secUserId) {
+        setStatus('当前账号没有可用的抖音账号 ID，无法更新。', 'bad');
+        return;
+      }
+      const shouldTranscribe = els.updateCreatorTranscribe.checked;
+      const shouldAnalyze = els.updateCreatorAnalyze.checked;
+      setBusy(true);
+      resetProgress('更新账号作品');
+      setStatus(`正在更新账号：${profile.creator}。将拉取该账号全部作品，并自动跳过已转录或已分析的内容。`);
+      const taskId = makeTaskId('creator_update');
+      startProgressPolling(taskId);
+      const payload = {
+        task_id: taskId,
+        target: profile.secUserId,
+        category: profile.category || '未分类',
+        page_size: 100,
+        max_pages: 100,
+        top_comments: Number(els.topComments?.value || 10),
+        min_likes: 0,
+        top_videos: 0,
+        download: true,
+      };
+      try {
+        const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        const fetched = data.result.fetched_video_count ?? data.result.video_count;
+        stopProgressPolling();
+        updateProgress('账号更新完成', 1, 1, 1, 0);
+        setStatus(`账号更新完成：拉取 ${fmt(fetched)} 条，入库/更新 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
+        await loadAll();
+        if (shouldTranscribe || shouldAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldTranscribe, analyze: shouldAnalyze });
+        renderLibrary();
+      } catch (error) {
+        stopProgressPolling();
+        updateProgress('账号更新失败', 1, 1, 0, 1);
+        setStatus(String(error.message || error), 'bad');
+        await loadFailedTasks();
+      } finally {
+        stopProgressPolling();
+        setBusy(false);
+      }
+    }
     async function updateVideoStatus(videoId, status) {
       if (busy) return;
       setBusy(true); updateProgress('状态更新', 0, 1, 0, 0); setStatus('状态更新中，请稍候。');
@@ -1757,6 +1875,7 @@
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
       for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
       for (const id of ['detailKeyword','detailStatus','detailSort']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
+      els.updateCreatorButton.onclick = updateSelectedCreator;
       els.batchTranscribeButton.onclick = () => runBatch('transcribe');
       els.batchAnalyzeButton.onclick = () => runBatch('analyze');
       els.batchNoSpeechButton.onclick = () => markRowsNoSpeech(batchCandidates());

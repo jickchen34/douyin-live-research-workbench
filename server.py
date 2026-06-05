@@ -21,6 +21,7 @@ from db import (
     ignore_failed_task,
     init_db,
     list_failed_tasks,
+    now_iso,
     record_failed_task,
     save_analysis,
     save_harvest_result,
@@ -123,6 +124,46 @@ def release_video_task(task_type: str, video_id: int) -> None:
         ACTIVE_VIDEO_TASKS.discard((task_type, video_id))
 
 
+def filter_batch_video_ids(task_type: str, video_ids: list[int]) -> list[int]:
+    if not video_ids:
+        return []
+    placeholders = ",".join("?" for _ in video_ids)
+    conn = connect()
+    init_db(conn)
+    if task_type == "transcribe":
+        rows = conn.execute(
+            f"""
+            SELECT v.id
+            FROM videos v
+            LEFT JOIN transcripts t ON t.video_id = v.id
+            WHERE v.id IN ({placeholders})
+              AND v.media_path IS NOT NULL
+              AND v.media_path != ''
+              AND t.id IS NULL
+              AND COALESCE(v.status, '') NOT IN ('no_speech', 'transcribe_running')
+            """,
+            video_ids,
+        ).fetchall()
+    elif task_type == "analyze":
+        rows = conn.execute(
+            f"""
+            SELECT v.id
+            FROM videos v
+            LEFT JOIN transcripts t ON t.video_id = v.id
+            LEFT JOIN analyses a ON a.video_id = v.id
+            WHERE v.id IN ({placeholders})
+              AND t.id IS NOT NULL
+              AND a.id IS NULL
+              AND COALESCE(v.status, '') != 'analyze_running'
+            """,
+            video_ids,
+        ).fetchall()
+    else:
+        return []
+    allowed = {int(row["id"]) for row in rows}
+    return [video_id for video_id in video_ids if video_id in allowed]
+
+
 def execute_video_task(task_type: str, video_id: int) -> dict:
     if not acquire_video_task(task_type, video_id):
         raise RuntimeError(f"视频 #{video_id} 已有{task_label(task_type)}任务正在处理中")
@@ -203,8 +244,9 @@ def enqueue_batch_job(task_type: str, video_ids: list[int]) -> dict:
         if video_id > 0 and video_id not in seen:
             seen.add(video_id)
             clean_ids.append(video_id)
+    clean_ids = filter_batch_video_ids(task_type, clean_ids)
     if not clean_ids:
-        raise ValueError("批量任务没有有效视频 ID")
+        raise ValueError(f"没有需要{task_label(task_type)}的视频")
     with ACTIVE_BATCH_LOCK:
         if task_type in ACTIVE_BATCH_TYPES:
             raise RuntimeError(f"已有批量{task_label(task_type)}任务正在运行，请等待完成后再提交")
@@ -318,7 +360,7 @@ def transcribe_video(video_id: int) -> dict:
     init_db(conn)
     row = conn.execute(
         """
-        SELECT id, media_path
+        SELECT id, media_path, creator_id, metadata_json
         FROM videos
         WHERE id = ?
         """,
@@ -328,6 +370,17 @@ def transcribe_video(video_id: int) -> dict:
         raise ValueError(f"未找到视频 ID：{video_id}")
     if not row["media_path"]:
         raise ValueError(f"视频 ID {video_id} 没有本地视频文件")
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except Exception:
+        metadata = {}
+    author_sec_user_id = metadata.get("author_sec_user_id")
+    if author_sec_user_id and row["creator_id"]:
+        conn.execute(
+            "UPDATE creators SET sec_user_id = COALESCE(sec_user_id, ?), updated_at = ? WHERE id = ?",
+            (author_sec_user_id, now_iso(), row["creator_id"]),
+        )
+        conn.commit()
     audio_path = extract_audio_for_asr(row["media_path"], video_id)
     update_video_paths(conn, video_id, audio_path=str(audio_path), status="audio_ready")
     asr_result = recognize_audio_file(audio_path)

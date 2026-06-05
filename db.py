@@ -28,6 +28,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS creators (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            sec_user_id TEXT,
             profile_url TEXT,
             category TEXT,
             tags TEXT DEFAULT '[]',
@@ -116,20 +117,28 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    ensure_column(conn, "creators", "sec_user_id", "TEXT")
     conn.commit()
 
 
-def upsert_creator(conn: sqlite3.Connection, name: str, category: str = "未分类", profile_url: str | None = None) -> int:
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def upsert_creator(conn: sqlite3.Connection, name: str, category: str = "未分类", profile_url: str | None = None, sec_user_id: str | None = None) -> int:
     ts = now_iso()
     conn.execute(
         """
-        INSERT INTO creators(name, profile_url, category, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO creators(name, sec_user_id, profile_url, category, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(name, category) DO UPDATE SET
+            sec_user_id = COALESCE(excluded.sec_user_id, creators.sec_user_id),
             profile_url = COALESCE(excluded.profile_url, creators.profile_url),
             updated_at = excluded.updated_at
         """,
-        (name, profile_url, category, ts, ts),
+        (name, sec_user_id, profile_url, category, ts, ts),
     )
     conn.commit()
     row = conn.execute("SELECT id FROM creators WHERE name = ? AND category = ?", (name, category)).fetchone()
@@ -160,7 +169,10 @@ def upsert_video(conn: sqlite3.Connection, data: dict) -> int:
             media_path = COALESCE(excluded.media_path, videos.media_path),
             audio_path = COALESCE(excluded.audio_path, videos.audio_path),
             metadata_json = excluded.metadata_json,
-            status = excluded.status,
+            status = CASE
+                WHEN videos.status IN ('transcribed', 'analyzed', 'no_speech') THEN videos.status
+                ELSE excluded.status
+            END,
             error = excluded.error,
             updated_at = excluded.updated_at
         """,
@@ -220,7 +232,8 @@ def save_harvest_result(conn: sqlite3.Connection, result: dict, category: str = 
     init_db(conn)
     creator = result.get("creator") or {}
     creator_name = result.get("creator_nickname") or creator.get("nickname") or result.get("sec_user_id") or "未命名博主"
-    creator_id = upsert_creator(conn, name=creator_name, category=category, profile_url=profile_url or result.get("target"))
+    sec_user_id = result.get("creator_sec_user_id") or creator.get("sec_user_id") or creator.get("sec_uid") or result.get("sec_user_id")
+    creator_id = upsert_creator(conn, name=creator_name, category=category, profile_url=profile_url or result.get("target"), sec_user_id=sec_user_id)
     saved_video_ids = []
     for item in result.get("videos") or []:
         aweme_id = str(item.get("aweme_id") or "")
@@ -471,8 +484,8 @@ def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
         SELECT
             v.id, v.source_url, v.title, v.description, v.duration, v.published_at,
             v.view_count, v.like_count, v.comment_count, v.repost_count, v.favorite_count,
-            v.media_path, v.audio_path, v.status, v.error, v.created_at, v.updated_at,
-            c.name AS creator_name, c.category,
+            v.media_path, v.audio_path, v.metadata_json, v.status, v.error, v.created_at, v.updated_at,
+            c.name AS creator_name, c.category, c.sec_user_id AS creator_sec_user_id, c.profile_url AS creator_profile_url,
             t.transcript_text,
             a.analysis_text, a.analysis_json
         FROM videos v
@@ -485,6 +498,13 @@ def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
     data = []
     for r in rows:
         item = dict(r)
+        try:
+            metadata = json.loads(item.get("metadata_json") or "{}")
+        except Exception:
+            metadata = {}
+        if not item.get("creator_sec_user_id"):
+            item["creator_sec_user_id"] = metadata.get("author_sec_user_id")
+        item.pop("metadata_json", None)
         comment_rows = conn.execute(
             """
             SELECT content, like_count, published_at
