@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.parse import parse_qs
 
 from app_logging import log_event, setup_logging, tail_logs
 from db import (
@@ -25,6 +26,7 @@ from db import (
     record_failed_task,
     save_analysis,
     save_harvest_result,
+    save_wechat_channels_result,
     save_transcript,
     update_video_paths,
     update_video_status,
@@ -32,6 +34,9 @@ from db import (
 from doubao_asr import extract_audio_for_asr, extract_transcript_text, recognize_audio_file, save_asr_result
 from douyin_creator_harvest import harvest_target
 from volcengine import analyze_with_doubao, load_local_env, parse_json_object
+from wechat_channels_harvest import DEFAULT_BASE_URL as WECHAT_CHANNELS_DEFAULT_BASE_URL
+from wechat_channels_harvest import check_status as check_wechat_channels_status
+from wechat_channels_harvest import harvest_wechat_channels, search_contacts
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -107,7 +112,7 @@ def list_jobs() -> list[dict]:
 
 
 def task_label(task_type: str) -> str:
-    return {"transcribe": "转录", "analyze": "分析"}.get(task_type, task_type)
+    return {"transcribe": "转录", "analyze": "分析", "wechat_harvest": "视频号采集"}.get(task_type, task_type)
 
 
 def acquire_video_task(task_type: str, video_id: int) -> bool:
@@ -289,6 +294,16 @@ def read_json(handler: SimpleHTTPRequestHandler) -> dict:
         raise ValueError("请求体不是有效 JSON") from e
 
 
+def query_params(path: str) -> dict[str, str]:
+    parsed = parse_qs(urlparse(path).query, keep_blank_values=True)
+    return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+def wechat_base_url(value: object = None) -> str:
+    raw = str(value or os.environ.get("WECHAT_CHANNELS_API_BASE_URL") or WECHAT_CHANNELS_DEFAULT_BASE_URL).strip()
+    return raw.rstrip("/") or WECHAT_CHANNELS_DEFAULT_BASE_URL
+
+
 def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -423,8 +438,14 @@ class AppHandler(SimpleHTTPRequestHandler):
         if path == "/api/jobs":
             json_response(self, 200, {"ok": True, "jobs": list_jobs()})
             return
+        if path == "/api/wechat-channels/status":
+            params = query_params(self.path)
+            base_url = wechat_base_url(params.get("base_url"))
+            status = check_wechat_channels_status(base_url)
+            json_response(self, 200 if status.get("ok") else 503, status)
+            return
         if path == "/api/progress":
-            params = dict([part.split("=", 1) for part in urlparse(self.path).query.split("&") if "=" in part])
+            params = query_params(self.path)
             payload = get_task_progress(params.get("task_id"))
             json_response(self, 200 if payload.get("ok") else 404, payload)
             return
@@ -517,6 +538,141 @@ class AppHandler(SimpleHTTPRequestHandler):
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 log_event(LOGGER, "video.delete_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error})
+            return
+        if path == "/api/wechat-channels/search":
+            try:
+                payload = read_json(self)
+                keyword = str(payload.get("keyword") or "").strip()
+                if not keyword:
+                    raise ValueError("请填写视频号作者关键词")
+                base_url = wechat_base_url(payload.get("base_url"))
+                result = search_contacts(keyword, base_url=base_url)
+                log_event(LOGGER, "wechat.search", keyword=keyword, count=len(result.get("items") or []), base_url=base_url)
+                json_response(self, 200, {"ok": True, "result": result})
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "wechat.search_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error})
+            return
+        if path == "/api/wechat-channels/harvest":
+            try:
+                payload = read_json(self)
+                username = str(payload.get("username") or "").strip()
+                if not username:
+                    raise ValueError("请填写视频号 username，例如 v2_xxx@finder")
+                category = str(payload.get("category") or "未分类").strip() or "未分类"
+                base_url = wechat_base_url(payload.get("base_url"))
+                max_pages_raw = bounded_int(payload.get("max_pages"), 100, 0, 200)
+                max_pages = max_pages_raw or None
+                top_comments = bounded_int(payload.get("top_comments"), 10, 0, 50)
+                min_likes = bounded_int(payload.get("min_likes"), 0, 0, 1_000_000_000)
+                top_videos_raw = bounded_int(payload.get("top_videos"), 0, 0, 10_000)
+                top_videos = top_videos_raw or None
+                download = bool(payload.get("download", True))
+                wait_download = bool(payload.get("wait_download", True))
+                download_timeout = bounded_int(payload.get("download_timeout"), 1800, 0, 7200)
+                task_id = str(payload.get("task_id") or f"wechat_{uuid.uuid4()}")
+                harvest_key = json.dumps(
+                    {
+                        "platform": "wechat_channels",
+                        "username": username,
+                        "base_url": base_url,
+                        "max_pages": max_pages,
+                        "top_comments": top_comments,
+                        "min_likes": min_likes,
+                        "top_videos": top_videos,
+                        "download": download,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                with ACTIVE_HARVEST_LOCK:
+                    if harvest_key in ACTIVE_HARVEST_KEYS:
+                        raise RuntimeError("相同视频号采集任务正在运行，请等待完成后再提交")
+                    ACTIVE_HARVEST_KEYS.add(harvest_key)
+                set_task_progress(task_id, stage="start", label="视频号采集", done=0, total=0, success=0, fail=0, status="running")
+                log_event(
+                    LOGGER,
+                    "wechat.harvest_start",
+                    task_id=task_id,
+                    username=username,
+                    category=category,
+                    base_url=base_url,
+                    max_pages=max_pages,
+                    top_comments=top_comments,
+                    min_likes=min_likes,
+                    top_videos=top_videos,
+                    download=download,
+                    wait_download=wait_download,
+                )
+                result = harvest_wechat_channels(
+                    username=username,
+                    base_url=base_url,
+                    max_pages=max_pages,
+                    top_comments=top_comments,
+                    download=download,
+                    wait_download=wait_download,
+                    download_timeout=download_timeout,
+                    min_likes=min_likes,
+                    top_videos=top_videos,
+                    progress_callback=lambda **updates: set_task_progress(task_id, **updates),
+                )
+                conn = connect()
+                saved = save_wechat_channels_result(conn, result, category=category, profile_url=f"wechat_channels://{username}")
+                clear_failed_task(conn, "wechat_harvest")
+                library = export_library_safely(conn)
+                set_task_progress(
+                    task_id,
+                    stage="saved",
+                    label="视频号采集完成",
+                    done=result.get("video_count") or 0,
+                    total=result.get("video_count") or 0,
+                    success=saved.get("saved_video_count") or 0,
+                    fail=0,
+                    status="done",
+                )
+                log_event(
+                    LOGGER,
+                    "wechat.harvest_success",
+                    task_id=task_id,
+                    username=username,
+                    creator_nickname=result.get("creator_nickname"),
+                    fetched_video_count=result.get("fetched_video_count"),
+                    video_count=result.get("video_count"),
+                    saved_video_count=saved.get("saved_video_count"),
+                )
+                with ACTIVE_HARVEST_LOCK:
+                    ACTIVE_HARVEST_KEYS.discard(harvest_key)
+                json_response(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "task_id": task_id,
+                        "result": {
+                            "username": username,
+                            "creator_nickname": result.get("creator_nickname"),
+                            "video_count": result.get("video_count"),
+                            "fetched_video_count": result.get("fetched_video_count"),
+                            "download_task_count": len(result.get("download_task_ids") or []),
+                            "filters": result.get("filters"),
+                        },
+                        "saved": saved,
+                        "library_count": len(library),
+                    },
+                )
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                if "task_id" in locals():
+                    set_task_progress(task_id, stage="failed", label="视频号采集失败", done=1, total=1, success=0, fail=1, status="failed", error=error)
+                if "harvest_key" in locals():
+                    with ACTIVE_HARVEST_LOCK:
+                        ACTIVE_HARVEST_KEYS.discard(harvest_key)
+                log_event(LOGGER, "wechat.harvest_failure", error=error, payload=payload if "payload" in locals() else {})
+                conn = connect()
+                init_db(conn)
+                record_failed_task(conn, "wechat_harvest", error, payload=payload if "payload" in locals() else {})
                 json_response(self, 500, {"ok": False, "error": error})
             return
         if path != "/api/harvest":

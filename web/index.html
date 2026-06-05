@@ -604,6 +604,44 @@
     }
     .status-box.ok { border-color: rgba(80, 122, 84, 0.34); color: #41683f; background: #f0f6ec; }
     .status-box.bad { border-color: rgba(182, 67, 53, 0.34); color: #903329; background: #f8e6e1; }
+    .wechat-setup {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+    .wechat-form {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.7fr) repeat(3, minmax(100px, 0.45fr)) auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .wechat-options { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 38px; }
+    .contact-results {
+      display: grid;
+      gap: 8px;
+      margin: 10px 0 12px;
+    }
+    .contact-result {
+      border: 1px solid rgba(48, 48, 46, 0.12);
+      background: #fffaf3;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      text-align: left;
+    }
+    .contact-result.active {
+      border-color: rgba(201, 100, 66, 0.42);
+      box-shadow: inset 3px 0 0 rgba(201, 100, 66, 0.62);
+    }
+    .contact-name { font-weight: 720; font-size: 14px; }
+    .contact-signature { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .platform-badge { font-size: 11px; }
     .preview-item { border-top-color: rgba(48,48,46,0.08); }
     .preview-title { color: var(--text); }
     .progress-track {
@@ -701,6 +739,7 @@
     .loading-progress-fill { background: linear-gradient(90deg, #c96442, #8f6f4c); }
     @media (max-width: 860px) {
       .task-browser-column:first-child { border-right: 0; border-bottom-color: rgba(48, 48, 46, 0.12); }
+      .wechat-setup, .wechat-form { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -768,6 +807,57 @@
               </div>
             </form>
             <div id="status" class="status-box">待命。默认会尽量扫描账号全部作品，再按点赞 Top N 和最低点赞数筛选。</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>微信视频号采集</h2>
+                <div class="muted">需要本机微信 PC 打开视频号页面，并通过 wx_channels_download 完成代理注入。</div>
+              </div>
+              <span id="wechatReadyBadge" class="pill amber">未检测</span>
+            </div>
+            <div class="wechat-setup">
+              <div>
+                <label for="wechatBaseUrl">本地视频号 API</label>
+                <input id="wechatBaseUrl" value="http://127.0.0.1:38129" />
+              </div>
+              <button id="wechatCheckButton" type="button">检测本地 PC</button>
+              <button id="wechatOpenGuideButton" class="ghost" type="button">查看操作提示</button>
+            </div>
+            <div id="wechatStatus" class="status-box">请先启动 wx_channels_download，并在微信 PC 打开目标视频号作者页。</div>
+            <div class="wechat-form">
+              <div>
+                <label for="wechatKeyword">作者关键词</label>
+                <input id="wechatKeyword" placeholder="输入视频号昵称，检测通过后可搜索" />
+              </div>
+              <button id="wechatSearchButton" type="button" disabled>搜索作者</button>
+              <div>
+                <label for="wechatUsername">作者 username</label>
+                <input id="wechatUsername" placeholder="v2_xxx@finder" />
+              </div>
+              <div>
+                <label for="wechatTopVideos">点赞 Top N</label>
+                <input id="wechatTopVideos" type="number" min="0" max="10000" value="0" />
+              </div>
+              <div>
+                <label for="wechatMinLikes">最低点赞数</label>
+                <input id="wechatMinLikes" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label for="wechatTopComments">评论数</label>
+                <input id="wechatTopComments" type="number" min="0" max="50" value="10" />
+              </div>
+              <button id="wechatHarvestButton" class="primary" type="button" disabled>采集全部作品</button>
+            </div>
+            <div id="wechatSearchResults" class="contact-results"></div>
+            <div class="wechat-options">
+              <label class="toggle"><input id="wechatDownload" type="checkbox" checked /> 下载视频</label>
+              <label class="toggle"><input id="wechatWaitDownload" type="checkbox" checked /> 等待下载完成</label>
+              <label class="toggle"><input id="wechatTranscribeAfterHarvest" type="checkbox" checked /> 转录</label>
+              <label class="toggle"><input id="wechatAnalyzeAfterHarvest" type="checkbox" /> 分析</label>
+              <span class="muted">分类沿用上方“账号分类”。</span>
+            </div>
           </section>
 
           <section class="panel">
@@ -987,6 +1077,8 @@
     let creatorColorMap = new Map();
     let selectedDetailCreator = '';
     let transcriptViewMode = 'raw';
+    let wechatStatus = { ok: false, available: false };
+    let wechatContacts = [];
     const creatorColorSeed = Math.random();
     const collapsedBlocks = new Set();
     let progressPollTimer = null;
@@ -999,6 +1091,7 @@
     function bind() {
       for (const id of [
         'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','runButton','status','refreshButton',
+        'wechatReadyBadge','wechatBaseUrl','wechatCheckButton','wechatOpenGuideButton','wechatStatus','wechatKeyword','wechatSearchButton','wechatUsername','wechatTopVideos','wechatMinLikes','wechatTopComments','wechatHarvestButton','wechatSearchResults','wechatDownload','wechatWaitDownload','wechatTranscribeAfterHarvest','wechatAnalyzeAfterHarvest',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
@@ -1076,10 +1169,11 @@
         if (els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
         if (!els.loadingProgressLabel?.textContent || els.loadingProgressLabel.textContent === '未开始') resetProgress('准备中');
       }
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton']) {
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton','wechatCheckButton','wechatSearchButton','wechatHarvestButton']) {
         if (els[id]) els[id].disabled = value;
       }
       if (!value && currentPage === 'library') renderLibraryCreatorCard();
+      if (!value) renderWechatControls();
     }
     function updateProgress(label, done, total, success, fail) {
       els.progressLabel.textContent = label;
@@ -1146,6 +1240,11 @@
       });
       return data.task_id || data.job?.job_id;
     }
+    function platformLabel(platform) {
+      if (platform === 'wechat_channels') return '视频号';
+      if (platform === 'douyin') return '抖音';
+      return platform || '未知平台';
+    }
     function statusText(r) {
       const s = r.status || '';
       if (s === 'transcribe_running') return '转录中';
@@ -1176,6 +1275,148 @@
       const data = await res.json();
       if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
       return data;
+    }
+    function wechatBaseUrl() {
+      return (els.wechatBaseUrl?.value || 'http://127.0.0.1:38129').trim();
+    }
+    function renderWechatControls() {
+      const ready = Boolean(wechatStatus.available);
+      if (els.wechatReadyBadge) {
+        els.wechatReadyBadge.textContent = ready ? '本地已连接' : (wechatStatus.ok ? '页面未连接' : '未检测');
+        els.wechatReadyBadge.className = 'pill ' + (ready ? 'green' : 'amber');
+      }
+      if (els.wechatSearchButton) els.wechatSearchButton.disabled = busy || !ready;
+      if (els.wechatHarvestButton) els.wechatHarvestButton.disabled = busy || !ready || !els.wechatUsername.value.trim();
+      if (currentPage === 'library') renderLibraryCreatorCard();
+    }
+    function setWechatStatus(text, mode) {
+      els.wechatStatus.textContent = text;
+      els.wechatStatus.className = 'status-box' + (mode ? ' ' + mode : '');
+    }
+    async function checkWechatChannels() {
+      if (busy) return;
+      setWechatStatus('正在检测本地视频号服务和 PC 页面连接状态。');
+      try {
+        const params = new URLSearchParams({base_url: wechatBaseUrl()});
+        const data = await requestJson('/api/wechat-channels/status?' + params.toString());
+        wechatStatus = data;
+        if (data.available) {
+          setWechatStatus(`检测通过：本地服务 ${data.base_url} 已连接微信 PC 视频号页面。`, 'ok');
+        } else {
+          setWechatStatus(`本地服务已启动，但微信 PC 视频号页面未连接：${data.message || '请打开视频号作者页并等待下载按钮出现。'}`, 'bad');
+        }
+      } catch (error) {
+        wechatStatus = {ok: false, available: false, error: String(error.message || error)};
+        setWechatStatus(`检测失败：${error.message || error}`, 'bad');
+      } finally {
+        renderWechatControls();
+      }
+    }
+    function renderWechatContacts() {
+      if (!wechatContacts.length) {
+        els.wechatSearchResults.innerHTML = '';
+        return;
+      }
+      els.wechatSearchResults.innerHTML = wechatContacts.map((item, index) => {
+        const contact = item.contact || {};
+        const active = contact.username && contact.username === els.wechatUsername.value.trim();
+        return `<button class="contact-result ${active ? 'active' : ''}" type="button" data-wechat-contact="${index}">
+          <div>
+            <div class="contact-name">${html(contact.nickname || contact.username)}</div>
+            <div class="contact-signature">${html(contact.signature || item.highlightProfession || '暂无简介')}</div>
+          </div>
+          <span class="pill">选择</span>
+        </button>`;
+      }).join('');
+      for (const btn of els.wechatSearchResults.querySelectorAll('[data-wechat-contact]')) {
+        btn.onclick = () => {
+          const item = wechatContacts[Number(btn.dataset.wechatContact)];
+          const contact = item?.contact || {};
+          els.wechatUsername.value = contact.username || '';
+          renderWechatContacts();
+          renderWechatControls();
+          setWechatStatus(`已选择视频号作者：${contact.nickname || contact.username}`, 'ok');
+        };
+      }
+    }
+    async function searchWechatContacts() {
+      if (busy || !wechatStatus.available) return;
+      const keyword = els.wechatKeyword.value.trim();
+      if (!keyword) {
+        setWechatStatus('请先输入视频号作者关键词。', 'bad');
+        return;
+      }
+      setBusy(true);
+      resetProgress('搜索视频号作者');
+      setWechatStatus('正在搜索视频号作者。');
+      try {
+        const data = await requestJson('/api/wechat-channels/search', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({keyword, base_url: wechatBaseUrl()}),
+        });
+        wechatContacts = data.result?.items || [];
+        renderWechatContacts();
+        updateProgress('搜索视频号作者', 1, 1, 1, 0);
+        setWechatStatus(wechatContacts.length ? `搜索完成：找到 ${wechatContacts.length} 个候选账号，请选择一个。` : '没有找到候选账号。', wechatContacts.length ? 'ok' : 'bad');
+      } catch (error) {
+        updateProgress('搜索视频号作者', 1, 1, 0, 1);
+        setWechatStatus(String(error.message || error), 'bad');
+      } finally {
+        setBusy(false);
+      }
+    }
+    async function harvestWechatChannels() {
+      if (busy || !wechatStatus.available) return;
+      const username = els.wechatUsername.value.trim();
+      if (!username) {
+        setWechatStatus('请先选择或填写视频号 username。', 'bad');
+        return;
+      }
+      const shouldAutoTranscribe = els.wechatTranscribeAfterHarvest.checked;
+      const shouldAutoAnalyze = els.wechatAnalyzeAfterHarvest.checked;
+      if (shouldAutoTranscribe || shouldAutoAnalyze) els.wechatDownload.checked = true;
+      const taskId = makeTaskId('wechat_harvest');
+      const payload = {
+        task_id: taskId,
+        username,
+        base_url: wechatBaseUrl(),
+        category: selectedHarvestCategory(),
+        max_pages: 100,
+        top_comments: Number(els.wechatTopComments.value || 10),
+        min_likes: Number(els.wechatMinLikes.value || 0),
+        top_videos: Number(els.wechatTopVideos.value || 0),
+        download: els.wechatDownload.checked,
+        wait_download: els.wechatWaitDownload.checked,
+        download_timeout: 3600,
+      };
+      setBusy(true);
+      resetProgress('视频号采集');
+      setStatus('视频号采集中：正在拉取作品、评论并提交下载任务。');
+      setWechatStatus('视频号采集中：请保持 wx_channels_download 和微信 PC 页面打开。');
+      startProgressPolling(taskId);
+      try {
+        const data = await requestJson('/api/wechat-channels/harvest', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        stopProgressPolling();
+        updateProgress('视频号采集完成', 1, 1, 1, 0);
+        setWechatStatus(`完成：${data.result.creator_nickname || username}，拉取 ${fmt(data.result.fetched_video_count)} 条，入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
+        setStatus(`视频号采集完成：入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
+        await loadAll();
+        if (shouldAutoTranscribe || shouldAutoAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldAutoTranscribe, analyze: shouldAutoAnalyze });
+      } catch (error) {
+        stopProgressPolling();
+        updateProgress('视频号采集失败', 1, 1, 0, 1);
+        setWechatStatus(String(error.message || error), 'bad');
+        setStatus(String(error.message || error), 'bad');
+        await loadFailedTasks();
+      } finally {
+        stopProgressPolling();
+        setBusy(false);
+      }
     }
     async function loadLibrary() {
       const res = await fetch('/api/library?ts=' + Date.now());
@@ -1283,11 +1524,13 @@
       const category = els.libCategory?.value || '';
       const scoped = rows.filter(r => r.creator_name === creator && (!category || r.category === category));
       if (!scoped.length) return null;
+      const platform = scoped.map(r => r.platform).find(Boolean) || 'douyin';
       const secUserId = scoped.map(r => r.creator_sec_user_id).find(Boolean) || '';
       const profileUrl = scoped.map(r => r.creator_profile_url).find(Boolean) || '';
       return {
         creator,
         category: category || scoped[0].category || '未分类',
+        platform,
         secUserId,
         profileUrl,
         total: scoped.length,
@@ -1305,11 +1548,12 @@
       }
       els.libraryCreatorCard.hidden = false;
       els.libraryCreatorName.textContent = profile.creator;
-      els.libraryCreatorIdBadge.textContent = profile.secUserId ? `ID ${profile.secUserId.slice(0, 12)}...` : '无账号 ID';
+      els.libraryCreatorIdBadge.textContent = profile.secUserId ? `${platformLabel(profile.platform)} ID ${profile.secUserId.slice(0, 12)}...` : '无账号 ID';
       els.libraryCreatorIdBadge.className = 'pill' + (profile.secUserId ? ' green' : ' amber');
-      els.updateCreatorButton.disabled = !profile.secUserId || busy;
+      els.updateCreatorButton.disabled = !profile.secUserId || busy || (profile.platform === 'wechat_channels' && !wechatStatus.available);
       els.libraryCreatorMeta.innerHTML = [
         `分类 ${html(profile.category)}`,
+        `平台 ${html(platformLabel(profile.platform))}`,
         `素材 ${fmt(profile.total)}`,
         `已下载 ${fmt(profile.downloaded)}`,
         `已转录 ${fmt(profile.transcribed)}`,
@@ -1389,7 +1633,7 @@
           <div class="task-title">${html(r.title)}</div>
           <input class="task-check" type="checkbox" data-check="${Number(r.id)}" ${checked} aria-label="选择素材" />
         </div>
-        <div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>赞 ${fmt(r.like_count)}</span><span>评 ${fmt(r.comment_count)}</span></div>
+        <div class="task-meta"><span class="pill platform-badge">${html(platformLabel(r.platform))}</span><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>赞 ${fmt(r.like_count)}</span><span>评 ${fmt(r.comment_count)}</span></div>
         <div class="task-meta"><span class="score">${fmt(r.score)}</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
         <div class="inline-actions">
           <button type="button" data-open="${Number(r.id)}">查看</button>
@@ -1518,7 +1762,7 @@
       const transcriptBlock = `<div id="transcriptText" class="text-box transcript transcript-${transcriptViewMode}">${transcriptContent(r.transcript_text)}</div>`;
       els.detailMain.innerHTML = `
         <section class="hero-detail">
-          <div class="panel-head"><div><h2 class="hero-title">${html(r.title)}</h2><div class="task-meta"><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>${html(r.published_at)}</span></div></div><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
+          <div class="panel-head"><div><h2 class="hero-title">${html(r.title)}</h2><div class="task-meta"><span>${html(platformLabel(r.platform))}</span><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>${html(r.published_at)}</span></div></div><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
           <div class="metric-row"><div class="metric"><span>素材分</span><b>${fmt(r.score)}</b></div><div class="metric"><span>点赞</span><b>${fmt(r.like_count)}</b></div><div class="metric"><span>评论</span><b>${fmt(r.comment_count)}</b></div><div class="metric"><span>收藏</span><b>${fmt(r.favorite_count)}</b></div><div class="metric"><span>转发</span><b>${fmt(r.repost_count)}</b></div></div>
         </section>
         ${blockShell('actions', '操作', `<div class="inline-actions"><button type="button" data-transcribe="${Number(r.id)}">转录</button><button class="primary" type="button" data-analyze="${Number(r.id)}">AI 分析</button><button class="warn" type="button" data-nospeech="${Number(r.id)}">标记无口播</button><button class="danger" type="button" data-delete="${Number(r.id)}">删除</button></div>`, actionsBlock)}
@@ -1526,7 +1770,7 @@
         ${blockShell('comments', '高赞评论', `<span class="pill">${fmt((r.top_comments || []).length)} 条</span>`, commentsBlock)}
         ${blockShell('analysis', 'AI 爆款分析', '<button type="button" data-copy="analysis">复制分析</button>', analysisBlock)}`;
       els.currentTaskBadge.textContent = statusText(r);
-      els.currentTaskPanel.textContent = `账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
+      els.currentTaskPanel.textContent = `平台：${platformLabel(r.platform)}\n账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
       bindCardButtons(els.detailMain);
       for (const btn of els.detailMain.querySelectorAll('[data-copy]')) btn.onclick = () => copyCurrent(btn.dataset.copy);
       for (const btn of els.detailMain.querySelectorAll('[data-transcript-mode]')) btn.onclick = () => { transcriptViewMode = btn.dataset.transcriptMode || 'raw'; renderDetail(); };
@@ -1671,17 +1915,24 @@
       if (busy) return;
       const profile = selectedLibraryCreatorProfile();
       if (!profile || !profile.secUserId) {
-        setStatus('当前账号没有可用的抖音账号 ID，无法更新。', 'bad');
+        setStatus('当前账号没有可用的账号 ID，无法更新。', 'bad');
         return;
+      }
+      if (profile.platform === 'wechat_channels' && !wechatStatus.available) {
+        await checkWechatChannels();
+        if (!wechatStatus.available) {
+          setStatus('视频号本地 PC 未连接，无法更新该视频号账号。请先在工作台完成视频号检测。', 'bad');
+          return;
+        }
       }
       const shouldTranscribe = els.updateCreatorTranscribe.checked;
       const shouldAnalyze = els.updateCreatorAnalyze.checked;
       setBusy(true);
       resetProgress('更新账号作品');
       setStatus(`正在更新账号：${profile.creator}。将拉取该账号全部作品，并自动跳过已转录或已分析的内容。`);
-      const taskId = makeTaskId('creator_update');
+      const taskId = makeTaskId(profile.platform === 'wechat_channels' ? 'wechat_creator_update' : 'creator_update');
       startProgressPolling(taskId);
-      const payload = {
+      const douyinPayload = {
         task_id: taskId,
         target: profile.secUserId,
         category: profile.category || '未分类',
@@ -1692,8 +1943,23 @@
         top_videos: 0,
         download: true,
       };
+      const wechatPayload = {
+        task_id: taskId,
+        username: profile.secUserId,
+        base_url: wechatBaseUrl(),
+        category: profile.category || '未分类',
+        max_pages: 100,
+        top_comments: Number(els.topComments?.value || 10),
+        min_likes: 0,
+        top_videos: 0,
+        download: true,
+        wait_download: true,
+        download_timeout: 3600,
+      };
       try {
-        const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        const endpoint = profile.platform === 'wechat_channels' ? '/api/wechat-channels/harvest' : '/api/harvest';
+        const payload = profile.platform === 'wechat_channels' ? wechatPayload : douyinPayload;
+        const data = await requestJson(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
         const fetched = data.result.fetched_video_count ?? data.result.video_count;
         stopProgressPolling();
         updateProgress('账号更新完成', 1, 1, 1, 0);
@@ -1753,6 +2019,7 @@
       if (!task || busy) return; setBusy(true); updateProgress(`重试${taskLabel(task.task_type)}`, 0, 1, 0, 0); setStatus(`手动重试：${taskLabel(task.task_type)}`);
       try {
         if (task.task_type === 'harvest') await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(task.payload || {}) });
+        else if (task.task_type === 'wechat_harvest') await requestJson('/api/wechat-channels/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(task.payload || {}) });
         else if (task.task_type === 'transcribe') await postTask('transcribe', task.video_id || task.payload?.video_id);
         else if (task.task_type === 'analyze') await postTask('analyze', task.video_id || task.payload?.video_id);
         updateProgress(`重试${taskLabel(task.task_type)}`, 1, 1, 1, 0);
@@ -1777,7 +2044,7 @@
       await updateVideoStatus(videoId, 'no_speech');
       await ignoreFailedTask(taskId);
     }
-    function taskLabel(type) { return {harvest: '账号采集', transcribe: '视频转录', analyze: 'AI 分析'}[type] || type; }
+    function taskLabel(type) { return {harvest: '账号采集', wechat_harvest: '视频号采集', transcribe: '视频转录', analyze: 'AI 分析'}[type] || type; }
     function copyCurrent(kind) {
       const r = rows.find(x => x.id === selectedId); if (!r) return;
       const text = kind === 'analysis' ? (r.analysis_text || '') : (r.transcript_text || '');
@@ -1809,6 +2076,7 @@
           '### 数据',
           '',
           `- 作者：${mdText(r.creator_name)}`,
+          `- 平台：${platformLabel(r.platform)}`,
           `- 分类：${mdText(r.category)}`,
           `- 状态：${statusText(r)}`,
           `- 发布时间：${mdText(r.published_at)}`,
@@ -1872,6 +2140,17 @@
         finally { stopProgressPolling(); setBusy(false); }
       });
       els.categorySelect.addEventListener('change', () => updateCustomCategoryVisibility(true));
+      els.wechatCheckButton.onclick = checkWechatChannels;
+      els.wechatSearchButton.onclick = searchWechatContacts;
+      els.wechatHarvestButton.onclick = harvestWechatChannels;
+      els.wechatOpenGuideButton.onclick = () => {
+        setWechatStatus('操作顺序：1. 启动 wx_channels_download；2. 保持终端打开；3. 打开微信 PC 视频号作者页；4. 等页面出现下载或批量下载按钮；5. 点击检测本地 PC。', 'ok');
+      };
+      els.wechatUsername.addEventListener('input', renderWechatControls);
+      els.wechatBaseUrl.addEventListener('input', () => {
+        wechatStatus = {ok: false, available: false};
+        renderWechatControls();
+      });
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
       for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
       for (const id of ['detailKeyword','detailStatus','detailSort']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
@@ -1896,6 +2175,7 @@
     }
     bind();
     attachEvents();
+    renderWechatControls();
     renderRails();
     const initialPage = new URLSearchParams(location.search).get('page') || location.hash.replace('#', '');
     loadAll()

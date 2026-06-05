@@ -69,6 +69,14 @@ pip install -r external/Douyin_TikTok_Download_API/requirements.txt
 
 如果该项目依赖以后变化，以它仓库内的 README 和 requirements 为准。
 
+如果需要使用微信视频号采集，还需要准备 `wx_channels_download`：
+
+```bash
+git clone https://github.com/ltaoo/wx_channels_download.git external/wx_channels_download
+```
+
+视频号采集依赖本机微信 PC 页面配合，不是纯后端独立采集。工作台会先检测 `wx_channels_download` 的本地 API 和微信 PC 页面 socket 是否可用，检测失败时不能继续搜索、下载、转录或分析视频号内容。
+
 ## 6. 配置环境变量
 
 复制模板：
@@ -178,7 +186,29 @@ http://127.0.0.1:8791/
 5. 全程显示全局 loading 和进度，避免误操作。
 6. 失败任务不会自动重试，会进入失败任务栏等待手动处理。
 
-## 11. 本地数据位置
+## 11. 微信视频号本地 PC 流程
+
+视频号模块使用 A1 方案：由用户在本机打开微信 PC 视频号页面，`wx_channels_download` 负责代理注入和本地 API，当前项目只调用它的程序化接口。
+
+基本顺序：
+
+1. 启动 `wx_channels_download`，保持终端运行。
+2. 打开本机微信 PC。
+3. 进入目标视频号作者主页。
+4. 等页面出现下载或批量下载按钮。
+5. 打开本项目工作台，在“微信视频号采集”区点击“检测本地 PC”。
+6. 检测通过后搜索作者，或直接填写 `v2_xxx@finder` 格式的 `username`。
+7. 设置筛选参数，点击“采集全部作品”。
+
+默认本地 API 地址：
+
+```text
+http://127.0.0.1:38129
+```
+
+如果 `wx_channels_download` 使用了其他端口，可以在前端“本地视频号 API”输入框里修改。
+
+## 12. 本地数据位置
 
 运行后会生成：
 
@@ -193,7 +223,7 @@ web/library.json               # 前端缓存
 
 这些文件都已在 `.gitignore` 中排除，不应提交。
 
-## 12. 常见故障定位
+## 13. 常见故障定位
 
 ### `ModuleNotFoundError: crawlers`
 
@@ -240,3 +270,12 @@ DOUBAO_ASR_UPLOAD_PROVIDER=bashupload
 - `VOLCENGINE_API_KEY` 是否正确。
 - `VOLCENGINE_ENDPOINT_ID` 是否是已开通的接入点。
 - 当前网络是否能访问火山方舟 API。
+
+### 视频号检测失败
+
+常见原因：
+
+- 没有启动 `wx_channels_download`。
+- 本地 API 端口不是 `38129`，但前端没有改成实际端口。
+- 微信 PC 没有打开视频号作者页。
+- 页面还没有完成代理注入，尚未出现下载或批量下载按钮。

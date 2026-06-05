@@ -228,6 +228,14 @@ def douyin_video_url(aweme_id: str) -> str:
     return f"https://www.douyin.com/video/{aweme_id}"
 
 
+def wechat_channels_video_url(feed: dict) -> str:
+    oid = str(feed.get("id") or "")
+    nid = str(feed.get("objectNonceId") or "")
+    if oid and nid:
+        return f"https://channels.weixin.qq.com/web/pages/feed?oid={oid}&nid={nid}"
+    return f"wechat_channels://feed/{oid or nid}"
+
+
 def save_harvest_result(conn: sqlite3.Connection, result: dict, category: str = "未分类", profile_url: str | None = None) -> dict:
     init_db(conn)
     creator = result.get("creator") or {}
@@ -263,6 +271,68 @@ def save_harvest_result(conn: sqlite3.Connection, result: dict, category: str = 
                     "raw": item.get("raw"),
                 },
                 "status": "harvested",
+                "error": item.get("download_error") or item.get("comment_error"),
+            },
+        )
+        save_video_comments(conn, video_id, item.get("top_comments") or [])
+        saved_video_ids.append(video_id)
+    return {
+        "creator_id": creator_id,
+        "creator_name": creator_name,
+        "saved_video_count": len(saved_video_ids),
+        "saved_video_ids": saved_video_ids,
+    }
+
+
+def save_wechat_channels_result(conn: sqlite3.Connection, result: dict, category: str = "未分类", profile_url: str | None = None) -> dict:
+    init_db(conn)
+    creator = result.get("creator") or {}
+    username = result.get("creator_username") or result.get("username") or creator.get("username")
+    creator_name = result.get("creator_nickname") or creator.get("nickname") or username or "未命名视频号"
+    creator_id = upsert_creator(
+        conn,
+        name=creator_name,
+        category=category,
+        profile_url=profile_url or f"wechat_channels://{username or creator_name}",
+        sec_user_id=username,
+    )
+    saved_video_ids = []
+    for item in result.get("videos") or []:
+        feed_id = str(item.get("id") or "")
+        if not feed_id:
+            continue
+        media_items = ((item.get("objectDesc") or {}).get("media")) or []
+        media = media_items[0] if media_items else {}
+        count_info = item.get("countInfo") or {}
+        description = (item.get("objectDesc") or {}).get("description")
+        video_id = upsert_video(
+            conn,
+            {
+                "platform": "wechat_channels",
+                "source_url": wechat_channels_video_url(item),
+                "source_id": feed_id,
+                "creator_id": creator_id,
+                "title": description,
+                "description": description,
+                "duration": media.get("videoPlayLen"),
+                "published_at": timestamp_to_iso(item.get("createtime")),
+                "like_count": count_info.get("likeCount"),
+                "comment_count": count_info.get("commentCount"),
+                "repost_count": count_info.get("forwardCount"),
+                "favorite_count": count_info.get("favCount"),
+                "media_path": item.get("media_path"),
+                "metadata": {
+                    "platform": "wechat_channels",
+                    "creator_username": username,
+                    "author_sec_user_id": username,
+                    "object_nonce_id": item.get("objectNonceId"),
+                    "download_error": item.get("download_error"),
+                    "comment_error": item.get("comment_error"),
+                    "media": media,
+                    "download_task_ids": result.get("download_task_ids") or [],
+                    "raw": item,
+                },
+                "status": "downloaded" if item.get("media_path") else "harvested",
                 "error": item.get("download_error") or item.get("comment_error"),
             },
         )
@@ -482,7 +552,7 @@ def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
     rows = conn.execute(
         """
         SELECT
-            v.id, v.source_url, v.title, v.description, v.duration, v.published_at,
+            v.id, v.platform, v.source_url, v.title, v.description, v.duration, v.published_at,
             v.view_count, v.like_count, v.comment_count, v.repost_count, v.favorite_count,
             v.media_path, v.audio_path, v.metadata_json, v.status, v.error, v.created_at, v.updated_at,
             c.name AS creator_name, c.category, c.sec_user_id AS creator_sec_user_id, c.profile_url AS creator_profile_url,

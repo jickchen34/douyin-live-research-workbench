@@ -11,6 +11,7 @@
 项目主链路已经可以本地运行：
 
 - 输入抖音主页链接，程序化采集账号作品、统计数据、高赞评论和媒体文件。
+- 支持微信视频号 A1 方案：本机微信 PC 打开目标视频号页面，通过本地 `wx_channels_download` 服务检测连接后采集作者作品。
 - 支持按账号分类、最低点赞数、点赞 Top N、高赞评论数量等参数采集；页数和每页数量默认使用 100/100 以尽量拉完整作品列表。
 - 采集页支持选择已有分类，也支持自定义分类。
 - 可分别勾选“转录”“分析”，采集完成后自动对本次采集视频先转录，再按需分析。
@@ -40,6 +41,7 @@ douyin_live_research/
   db.py                       # SQLite 表结构和读写
   doubao_asr.py               # 火山豆包语音 ASR
   douyin_creator_harvest.py   # 抖音账号采集
+  wechat_channels_harvest.py  # 微信视频号本地 PC 辅助采集
   pipeline.py                 # 单条视频旧流水线
   server.py                   # 本地前端/API 服务
   volcengine.py               # 火山方舟调用封装
@@ -56,6 +58,7 @@ douyin_live_research/
 data/                         # 数据库、视频、音频、ASR 结果、分析结果
 logs/                         # 运行日志
 external/Douyin_TikTok_Download_API/  # 本地克隆的外部采集依赖
+external/wx_channels_download/         # 本地克隆的视频号辅助下载依赖
 web/library.json              # 前端素材缓存
 ```
 
@@ -75,6 +78,14 @@ pip install -r external/Douyin_TikTok_Download_API/requirements.txt
 ```
 
 该目录已被 `.gitignore` 忽略，不会进入本仓库。
+
+微信视频号采集采用本地 PC 辅助方案，需要单独准备 `wx_channels_download`：
+
+```bash
+git clone https://github.com/ltaoo/wx_channels_download.git external/wx_channels_download
+```
+
+视频号功能不是纯后端无感采集。使用前需要启动 `wx_channels_download`，并在本机微信 PC 打开目标视频号作者页，等页面完成代理注入后，再在工作台点击“检测本地 PC”。检测失败时，视频号搜索、下载和后续转录分析入口会保持禁用。
 
 系统依赖：
 
@@ -173,6 +184,16 @@ http://127.0.0.1:8791/
 8. 在数据查看页筛选素材。
 9. 在信息页面查看 AI 分析、高赞评论、转录文本和任务详情。
 10. 无口播视频可标记为“无口播”，后续批量任务会跳过。
+
+### 微信视频号流程
+
+1. 启动 `wx_channels_download`。
+2. 打开本机微信 PC，并进入目标视频号作者页。
+3. 等页面出现下载或批量下载按钮。
+4. 在工作台“微信视频号采集”区点击“检测本地 PC”。
+5. 检测通过后，搜索作者或填写 `username`。
+6. 设置点赞 Top N、最低点赞数、高赞评论数等参数。
+7. 点击“采集全部作品”，按需勾选下载、转录和分析。
 
 ## 环境检查
 
