@@ -1,0 +1,317 @@
+diff --git a/internal/api/handler.go b/internal/api/handler.go
+index 3505453..3dbee07 100644
+--- a/internal/api/handler.go
++++ b/internal/api/handler.go
+@@ -240,14 +240,46 @@ func (c *APIClient) handleFetchSharedFeedProfile(ctx *gin.Context) {
+ }
+ 
+ type FeedDownloadTaskBody struct {
+-	Id       string `json:"id"`
+-	NonceId  string `json:"nonce_id"`
+-	URL      string `json:"url"`
+-	Title    string `json:"title"`
+-	Filename string `json:"filename"`
+-	Key      int    `json:"key"`
+-	Spec     string `json:"spec"`
+-	Suffix   string `json:"suffix"`
++	Id            string `json:"id"`
++	NonceId       string `json:"nonce_id"`
++	URL           string `json:"url"`
++	Title         string `json:"title"`
++	Filename      string `json:"filename"`
++	Key           int    `json:"key"`
++	Spec          string `json:"spec"`
++	Suffix        string `json:"suffix"`
++	LikeCount     *int   `json:"like_count"`
++	CommentCount  *int   `json:"comment_count"`
++	RepostCount   *int   `json:"repost_count"`
++	FavoriteCount *int   `json:"favorite_count"`
++	RawLikeText   string `json:"raw_like_text"`
++}
++
++func feedDownloadLabels(body *FeedDownloadTaskBody) map[string]string {
++	labels := map[string]string{
++		"id":       body.Id,
++		"nonce_id": body.NonceId,
++		"title":    body.Title,
++		"key":      strconv.Itoa(body.Key),
++		"spec":     body.Spec,
++		"suffix":   body.Suffix,
++	}
++	if body.LikeCount != nil {
++		labels["like_count"] = strconv.Itoa(*body.LikeCount)
++	}
++	if body.CommentCount != nil {
++		labels["comment_count"] = strconv.Itoa(*body.CommentCount)
++	}
++	if body.RepostCount != nil {
++		labels["repost_count"] = strconv.Itoa(*body.RepostCount)
++	}
++	if body.FavoriteCount != nil {
++		labels["favorite_count"] = strconv.Itoa(*body.FavoriteCount)
++	}
++	if body.RawLikeText != "" {
++		labels["raw_like_text"] = body.RawLikeText
++	}
++	return labels
+ }
+ 
+ func (c *APIClient) handleCreateFeedDownloadTask(ctx *gin.Context) {
+@@ -286,15 +318,8 @@ func (c *APIClient) handleCreateFeedDownloadTask(ctx *gin.Context) {
+ 	}
+ 	id, err := c.downloader.CreateDirect(
+ 		&base.Request{
+-			URL: body.URL,
+-			Labels: map[string]string{
+-				"id":       body.Id,
+-				"nonce_id": body.NonceId,
+-				"title":    body.Title,
+-				"key":      strconv.Itoa(body.Key),
+-				"spec":     body.Spec,
+-				"suffix":   body.Suffix,
+-			},
++			URL:    body.URL,
++			Labels: feedDownloadLabels(&body),
+ 		},
+ 		&base.Options{
+ 			Name: filename + body.Suffix,
+@@ -571,6 +596,21 @@ func buildBatchCreateTask(c *APIClient, existing_task_map map[string]int, feeds
+ 			"url":      req.URL,
+ 			"name":     req.Filename,
+ 		})
++		if req.LikeCount != nil {
++			items[len(items)-1]["like_count"] = strconv.Itoa(*req.LikeCount)
++		}
++		if req.CommentCount != nil {
++			items[len(items)-1]["comment_count"] = strconv.Itoa(*req.CommentCount)
++		}
++		if req.RepostCount != nil {
++			items[len(items)-1]["repost_count"] = strconv.Itoa(*req.RepostCount)
++		}
++		if req.FavoriteCount != nil {
++			items[len(items)-1]["favorite_count"] = strconv.Itoa(*req.FavoriteCount)
++		}
++		if req.RawLikeText != "" {
++			items[len(items)-1]["raw_like_text"] = req.RawLikeText
++		}
+ 	}
+ 	if len(items) == 0 {
+ 		return &base.CreateTaskBatch{}, nil
+@@ -582,17 +622,23 @@ func buildBatchCreateTask(c *APIClient, existing_task_map map[string]int, feeds
+ 			continue
+ 		}
+ 		url := item["url"]
++		labels := map[string]string{
++			"id":       item["id"],
++			"nonce_id": item["nonce_id"],
++			"title":    item["title"],
++			"key":      item["key"],
++			"spec":     item["spec"],
++			"suffix":   item["suffix"],
++		}
++		for _, key := range []string{"like_count", "comment_count", "repost_count", "favorite_count", "raw_like_text"} {
++			if value, ok := item[key]; ok {
++				labels[key] = value
++			}
++		}
+ 		task.Reqs = append(task.Reqs, &base.CreateTaskBatchItem{
+ 			Req: &base.Request{
+-				URL: url,
+-				Labels: map[string]string{
+-					"id":       item["id"],
+-					"nonce_id": item["nonce_id"],
+-					"title":    item["title"],
+-					"key":      item["key"],
+-					"spec":     item["spec"],
+-					"suffix":   item["suffix"],
+-				},
++				URL:    url,
++				Labels: labels,
+ 			},
+ 			Opts: &base.Options{
+ 				Name: filename,
+diff --git a/internal/interceptor/inject/src/profile.js b/internal/interceptor/inject/src/profile.js
+index e589f4e..18a4e5d 100644
+--- a/internal/interceptor/inject/src/profile.js
++++ b/internal/interceptor/inject/src/profile.js
+@@ -4,6 +4,89 @@
+ (() => {
+   insert_channels_style();
+   var my_username = "";
++  function __wx_parse_profile_stat_number(value) {
++    if (value === null || value === undefined) {
++      return undefined;
++    }
++    if (typeof value === "number" && Number.isFinite(value)) {
++      return Math.round(value);
++    }
++    var text = String(value).replace(/,/g, "").trim();
++    if (!text) {
++      return undefined;
++    }
++    var match = text.match(/([0-9]+(?:\.[0-9]+)?)(万|w|W|千|k|K)?/);
++    if (!match) {
++      return undefined;
++    }
++    var number = Number(match[1]);
++    if (!Number.isFinite(number)) {
++      return undefined;
++    }
++    var unit = match[2] || "";
++    if (unit === "万" || unit === "w" || unit === "W") {
++      number *= 10000;
++    } else if (unit === "千" || unit === "k" || unit === "K") {
++      number *= 1000;
++    }
++    return Math.round(number);
++  }
++  function __wx_extract_like_count_from_text(text) {
++    if (!text) {
++      return undefined;
++    }
++    var like_match = text.match(/(?:赞|点赞)\s*([0-9]+(?:\.[0-9]+)?(?:万|w|W|千|k|K)?)/);
++    if (like_match) {
++      return __wx_parse_profile_stat_number(like_match[1]);
++    }
++    return undefined;
++  }
++  function __wx_find_visible_card_like_count(feed) {
++    var title = String((feed && feed.title) || "").replace(/\s+/g, "");
++    if (!title) {
++      return {};
++    }
++    var token = title.slice(0, Math.min(18, title.length));
++    if (!token) {
++      return {};
++    }
++    var nodes = Array.from(document.querySelectorAll("article, li, [class*='card'], [class*='feed'], [class*='item'], div"));
++    var best = null;
++    for (var i = 0; i < nodes.length; i += 1) {
++      var text = (nodes[i].innerText || "").trim();
++      if (!text || text.length > 2000) {
++        continue;
++      }
++      var compact = text.replace(/\s+/g, "");
++      if (compact.indexOf(token) === -1) {
++        continue;
++      }
++      var like_count = __wx_extract_like_count_from_text(text);
++      if (like_count !== undefined) {
++        return {
++          like_count,
++          raw_like_text: text.slice(0, 240),
++        };
++      }
++      if (!best || text.length < best.length) {
++        best = text;
++      }
++    }
++    return {};
++  }
++  function __wx_enrich_feed_stats_from_card(feed) {
++    if (!feed || feed.like_count !== undefined) {
++      return feed;
++    }
++    var stats = __wx_find_visible_card_like_count(feed);
++    if (stats.like_count === undefined) {
++      return feed;
++    }
++    return {
++      ...feed,
++      ...stats,
++    };
++  }
+   function __wx_insert_batch_download_btn() {
+     const $operation = document.querySelector(".opr-area");
+     if (!$operation) {
+@@ -93,7 +176,13 @@
+             .map((obj) => {
+               return WXU.format_feed(obj);
+             })
++            .map((feed) => {
++              return __wx_enrich_feed_stats_from_card(feed);
++            })
+             .filter((feed) => {
++              if (!feed) {
++                return false;
++              }
+               if (feed.type === "live") {
+                 return false;
+               }
+diff --git a/internal/interceptor/inject/src/utils.d.ts b/internal/interceptor/inject/src/utils.d.ts
+index 365703a..607df74 100644
+--- a/internal/interceptor/inject/src/utils.d.ts
++++ b/internal/interceptor/inject/src/utils.d.ts
+@@ -118,6 +118,11 @@ type FeedProfile = {
+   size?: number;
+   /** 视频时长 */
+   duration?: number;
++  like_count?: number;
++  comment_count?: number;
++  repost_count?: number;
++  favorite_count?: number;
++  raw_like_text?: string;
+   /** 图片列表，类型为 pictures 才有 */
+   files?: { url: string }[];
+   /** 规格列表，类型为 media 才有 */
+diff --git a/internal/interceptor/inject/src/utils.js b/internal/interceptor/inject/src/utils.js
+index a1fc33d..2b9efb3 100644
+--- a/internal/interceptor/inject/src/utils.js
++++ b/internal/interceptor/inject/src/utils.js
+@@ -160,6 +160,7 @@ var WXU = (() => {
+     var media = feed.objectDesc.media[0];
+     if (type === 2) {
+       // 图片视频
++      const count_info = feed.countInfo || {};
+       return {
+         ...feed,
+         type: "picture",
+@@ -171,6 +172,10 @@ var WXU = (() => {
+         url: "",
+         key: 0,
+         spec: [],
++        like_count: feed.likeCount ?? count_info.likeCount,
++        comment_count: feed.commentCount ?? count_info.commentCount,
++        repost_count: feed.forwardCount ?? count_info.forwardCount,
++        favorite_count: feed.favCount ?? count_info.favCount,
+         contact: {
+           id: feed.contact.username,
+           avatar_url: feed.contact.headUrl,
+@@ -179,6 +184,7 @@ var WXU = (() => {
+       };
+     }
+     if (type === 4) {
++      const count_info = feed.countInfo || {};
+       return {
+         ...feed,
+         type: "media",
+@@ -192,6 +198,10 @@ var WXU = (() => {
+         spec: media.spec,
+         size: media.fileSize,
+         duration: media.videoPlayLen,
++        like_count: feed.likeCount ?? count_info.likeCount,
++        comment_count: feed.commentCount ?? count_info.commentCount,
++        repost_count: feed.forwardCount ?? count_info.forwardCount,
++        favorite_count: feed.favCount ?? count_info.favCount,
+         contact: {
+           id: feed.contact.username,
+           avatar_url: feed.contact.headUrl,
+@@ -891,12 +901,18 @@ var WXU = (() => {
+             }
+             body.feeds.push({
+               id: feed.id,
++              nonce_id: feed.nonce_id,
+               url: feed.url,
+               title: feed.title,
+               key: Number(feed.key),
+               filename,
+               spec,
+               suffix: opt.suffix,
++              like_count: feed.like_count,
++              comment_count: feed.comment_count,
++              repost_count: feed.repost_count,
++              favorite_count: feed.favorite_count,
++              raw_like_text: feed.raw_like_text,
+             });
+           }
+         }

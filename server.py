@@ -582,6 +582,24 @@ def task_labels(task: dict) -> dict:
     return (((task.get("meta") or {}).get("req") or {}).get("labels") or {})
 
 
+def optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(str(value).replace(",", "").strip()))
+    except Exception:
+        return None
+
+
+def task_count_labels(labels: dict) -> dict:
+    return {
+        "like_count": optional_int(labels.get("like_count")),
+        "comment_count": optional_int(labels.get("comment_count")),
+        "repost_count": optional_int(labels.get("repost_count")),
+        "favorite_count": optional_int(labels.get("favorite_count")),
+    }
+
+
 def list_wechat_download_batches(
     base_url: str,
     directory: Path,
@@ -601,11 +619,14 @@ def list_wechat_download_batches(
         created_ts = parse_iso_timestamp(task.get("createdAt")) or path.stat().st_mtime
         updated_ts = parse_iso_timestamp(task.get("updatedAt")) or path.stat().st_mtime
         labels = task_labels(task)
+        count_labels = task_count_labels(labels)
         entries.append(
             {
                 "task_id": task.get("id"),
                 "feed_id": labels.get("id"),
                 "spec": labels.get("spec"),
+                **count_labels,
+                "raw_like_text": labels.get("raw_like_text"),
                 "status": task.get("status"),
                 "created_ts": created_ts,
                 "updated_ts": updated_ts,
@@ -686,6 +707,37 @@ def merge_video_metadata(conn, video_id: int, extra: dict) -> None:
     conn.commit()
 
 
+def update_video_counts_from_task_item(conn, video_id: int, task_item: dict) -> None:
+    count_values = {
+        "like_count": optional_int(task_item.get("like_count")),
+        "comment_count": optional_int(task_item.get("comment_count")),
+        "repost_count": optional_int(task_item.get("repost_count")),
+        "favorite_count": optional_int(task_item.get("favorite_count")),
+    }
+    if all(value is None for value in count_values.values()):
+        return
+    conn.execute(
+        """
+        UPDATE videos
+        SET like_count = COALESCE(?, like_count),
+            comment_count = COALESCE(?, comment_count),
+            repost_count = COALESCE(?, repost_count),
+            favorite_count = COALESCE(?, favorite_count),
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            count_values["like_count"],
+            count_values["comment_count"],
+            count_values["repost_count"],
+            count_values["favorite_count"],
+            now_iso(),
+            video_id,
+        ),
+    )
+    conn.commit()
+
+
 def find_wechat_video_by_feed_id(conn, feed_id: str) -> dict | None:
     if not feed_id:
         return None
@@ -756,12 +808,18 @@ def import_local_wechat_downloads(
                 "wechat_spec": task_item.get("spec"),
                 "wechat_task_created_at": task_item.get("created_at"),
                 "wechat_task_updated_at": task_item.get("updated_at"),
+                "like_count": task_item.get("like_count"),
+                "comment_count": task_item.get("comment_count"),
+                "repost_count": task_item.get("repost_count"),
+                "favorite_count": task_item.get("favorite_count"),
+                "raw_like_text": task_item.get("raw_like_text"),
             }
         }
         existing_feed_video = find_wechat_video_by_feed_id(conn, feed_id)
         if existing_feed_video:
             video_id = int(existing_feed_video["id"])
             update_video_paths(conn, video_id, media_path=str(path), status=keep_status_after_media_attach(existing_feed_video.get("status")))
+            update_video_counts_from_task_item(conn, video_id, task_item)
             merge_video_metadata(conn, video_id, import_metadata)
             attached_existing_count += 1
             metadata_backfill_count += 1
@@ -794,7 +852,16 @@ def import_local_wechat_downloads(
                         "wechat_spec": task_item.get("spec"),
                         "wechat_task_created_at": task_item.get("created_at"),
                         "wechat_task_updated_at": task_item.get("updated_at"),
+                        "like_count": task_item.get("like_count"),
+                        "comment_count": task_item.get("comment_count"),
+                        "repost_count": task_item.get("repost_count"),
+                        "favorite_count": task_item.get("favorite_count"),
+                        "raw_like_text": task_item.get("raw_like_text"),
                     },
+                    "like_count": optional_int(task_item.get("like_count")),
+                    "comment_count": optional_int(task_item.get("comment_count")),
+                    "repost_count": optional_int(task_item.get("repost_count")),
+                    "favorite_count": optional_int(task_item.get("favorite_count")),
                     "status": "downloaded",
                 },
             )
