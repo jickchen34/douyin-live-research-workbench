@@ -1370,8 +1370,8 @@
       if (els.wechatStartButton) els.wechatStartButton.disabled = busy || serviceRunning;
       if (els.wechatStopButton) els.wechatStopButton.disabled = busy || !serviceRunning;
       if (els.wechatCheckButton) els.wechatCheckButton.disabled = busy || !serviceRunning;
-      if (els.wechatSearchButton) els.wechatSearchButton.disabled = busy || !ready;
-      if (els.wechatHarvestButton) els.wechatHarvestButton.disabled = busy || !ready || !els.wechatUsername.value.trim();
+      if (els.wechatSearchButton) els.wechatSearchButton.disabled = busy || !serviceRunning;
+      if (els.wechatHarvestButton) els.wechatHarvestButton.disabled = busy || !serviceRunning || !els.wechatUsername.value.trim();
       if (currentPage === 'library') renderLibraryCreatorCard();
     }
     function setWechatStatus(text, mode) {
@@ -1440,6 +1440,8 @@
         wechatStatus = data;
         if (data.available) {
           setWechatStatus(`检测通过：本地服务 ${data.base_url} 已连接微信 PC 视频号页面。${wechatProcessText(data)}`, 'ok');
+        } else if (data.ok) {
+          setWechatStatus(`本地服务已启动，微信页面连接状态未确认；如果页面已出现“批量下载”，可以继续搜索和采集。${wechatProcessText(data)}`, 'ok');
         } else {
           setWechatStatus(`本地服务已启动，但微信 PC 视频号页面未连接：${data.message || '请打开视频号作者页并等待下载按钮出现。'}${wechatProcessText(data)}`, 'bad');
         }
@@ -1478,7 +1480,7 @@
       }
     }
     async function searchWechatContacts() {
-      if (busy || !wechatStatus.available) return;
+      if (busy || !wechatServiceRunning()) return;
       const keyword = els.wechatKeyword.value.trim();
       if (!keyword) {
         setWechatStatus('请先输入视频号作者关键词。', 'bad');
@@ -1505,10 +1507,10 @@
       }
     }
     async function harvestWechatChannels() {
-      if (busy || !wechatStatus.available) return;
+      if (busy || !wechatServiceRunning()) return;
       const username = els.wechatUsername.value.trim();
       if (!username) {
-        setWechatStatus('请先选择或填写视频号 username。', 'bad');
+        setWechatStatus('请先选择作者，或填写视频号昵称 / username。', 'bad');
         return;
       }
       const shouldAutoTranscribe = els.wechatTranscribeAfterHarvest.checked;
@@ -1541,6 +1543,7 @@
         });
         stopProgressPolling();
         updateProgress('视频号采集完成', 1, 1, 1, 0);
+        if (data.result?.username && data.result.username !== username) els.wechatUsername.value = data.result.username;
         setWechatStatus(`完成：${data.result.creator_nickname || username}，拉取 ${fmt(data.result.fetched_video_count)} 条，入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
         setStatus(`视频号采集完成：入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
         await loadAll();
@@ -1682,7 +1685,11 @@
         });
         stopProgressPolling();
         updateProgress('视频号本地视频导入完成', data.result.imported_count, data.result.file_count, data.result.imported_count, 0);
-        setWechatLocalStatus(`导入完成：${scopeText}，入库 ${fmt(data.result.imported_count)} 个，其中新增 ${fmt(data.result.new_count)} 个，作者 ${creatorName}。`, 'ok');
+        const attached = Number(data.result.attached_existing_count || 0);
+        const createdLocal = Number(data.result.created_local_count ?? data.result.new_count ?? 0);
+        const backfilled = Number(data.result.metadata_backfill_count || 0);
+        const enrichText = attached ? `，匹配并回补已有采集数据 ${fmt(backfilled)} 个` : '';
+        setWechatLocalStatus(`导入完成：${scopeText}，入库 ${fmt(data.result.imported_count)} 个，新建本地素材 ${fmt(createdLocal)} 个${enrichText}，作者 ${creatorName}。`, 'ok');
         await loadAll();
         if (shouldTranscribe) {
           await autoProcessHarvestedVideos(data.result.video_ids || [], { transcribe: true, analyze: shouldAnalyze, deleteMediaAfterTranscribe: shouldDeleteMedia });
@@ -1830,7 +1837,7 @@
       els.libraryCreatorName.textContent = profile.creator;
       els.libraryCreatorIdBadge.textContent = profile.secUserId ? `${platformLabel(profile.platform)} ID ${profile.secUserId.slice(0, 12)}...` : '无账号 ID';
       els.libraryCreatorIdBadge.className = 'pill' + (profile.secUserId ? ' green' : ' amber');
-      els.updateCreatorButton.disabled = !profile.secUserId || busy || (profile.platform === 'wechat_channels' && !wechatStatus.available);
+      els.updateCreatorButton.disabled = !profile.secUserId || busy || (profile.platform === 'wechat_channels' && !wechatServiceRunning());
       els.libraryCreatorMeta.innerHTML = [
         `分类 ${html(profile.category)}`,
         `平台 ${html(platformLabel(profile.platform))}`,
@@ -2202,10 +2209,10 @@
         setStatus('当前账号没有可用的账号 ID，无法更新。', 'bad');
         return;
       }
-      if (profile.platform === 'wechat_channels' && !wechatStatus.available) {
+      if (profile.platform === 'wechat_channels' && !wechatServiceRunning()) {
         await checkWechatChannels();
-        if (!wechatStatus.available) {
-          setStatus('视频号本地 PC 未连接，无法更新该视频号账号。请先在工作台完成视频号检测。', 'bad');
+        if (!wechatServiceRunning()) {
+          setStatus('视频号本地服务未启动，无法更新该视频号账号。请先在工作台启动视频号服务。', 'bad');
           return;
         }
       }

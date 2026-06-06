@@ -417,6 +417,30 @@ def wechat_config_needs_elevation(config_path: Path) -> bool:
     return bool(re.search(r"(?m)^\s*tun:\s*true\s*$", text))
 
 
+def resolve_wechat_username(value: str, base_url: str) -> tuple[str, dict | None]:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("请填写视频号作者关键词或 username")
+    if "@finder" in raw:
+        return raw, None
+    result = search_contacts(raw, base_url=base_url)
+    items = result.get("items") or []
+    if not items:
+        raise ValueError(f"没有搜索到视频号作者：{raw}")
+    selected = None
+    for item in items:
+        contact = item.get("contact") or {}
+        if str(contact.get("nickname") or "").strip() == raw:
+            selected = item
+            break
+    selected = selected or items[0]
+    contact = selected.get("contact") or {}
+    username = str(contact.get("username") or "").strip()
+    if not username:
+        raise ValueError(f"搜索到的作者缺少 username：{raw}")
+    return username, selected
+
+
 def start_wechat_channels_service() -> dict:
     existing_status = check_wechat_channels_status(WECHAT_CHANNELS_DEFAULT_BASE_URL)
     if existing_status.get("ok"):
@@ -617,7 +641,7 @@ def list_wechat_download_batches(
                 "first_created_at": datetime.fromtimestamp(batch["first_created_ts"]).astimezone().isoformat(timespec="seconds"),
                 "last_created_at": datetime.fromtimestamp(batch["last_created_ts"]).astimezone().isoformat(timespec="seconds"),
                 "paths": [item["path"] for item in items],
-                "items": items[:30],
+                "items": items,
             }
         )
     result.sort(key=lambda item: item["last_created_at"], reverse=True)
@@ -645,6 +669,47 @@ def validate_local_wechat_file_paths(paths: list[object], directory: Path) -> li
     return result
 
 
+def load_video_metadata(conn, video_id: int) -> dict:
+    row = conn.execute("SELECT metadata_json FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not row:
+        return {}
+    try:
+        return json.loads(row["metadata_json"] or "{}")
+    except Exception:
+        return {}
+
+
+def merge_video_metadata(conn, video_id: int, extra: dict) -> None:
+    metadata = load_video_metadata(conn, video_id)
+    metadata.update(extra)
+    conn.execute("UPDATE videos SET metadata_json = ?, updated_at = ? WHERE id = ?", (json.dumps(metadata, ensure_ascii=False), now_iso(), video_id))
+    conn.commit()
+
+
+def find_wechat_video_by_feed_id(conn, feed_id: str) -> dict | None:
+    if not feed_id:
+        return None
+    row = conn.execute(
+        """
+        SELECT id, status
+        FROM videos
+        WHERE platform = 'wechat_channels'
+          AND source_id = ?
+          AND source_url NOT LIKE 'wechat_channels://local/%'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (feed_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def keep_status_after_media_attach(status: str | None) -> str | None:
+    if status in {"transcribed", "analyzed", "no_speech"}:
+        return None
+    return "downloaded"
+
+
 def import_local_wechat_downloads(
     creator_name: str,
     category: str,
@@ -668,43 +733,74 @@ def import_local_wechat_downloads(
         sec_user_id=None,
     )
     imported_ids: list[int] = []
+    imported_id_set: set[int] = set()
     new_count = 0
+    attached_existing_count = 0
+    created_local_count = 0
+    metadata_backfill_count = 0
     for index, path in enumerate(files, start=1):
         source_hash = hashlib.sha1(str(path).encode("utf-8")).hexdigest()
         source_url = f"wechat_channels://local/{source_hash}"
-        existing = conn.execute("SELECT id FROM videos WHERE source_url = ?", (source_url,)).fetchone()
-        if not existing:
-            new_count += 1
         stat = path.stat()
         task_item = item_by_path.get(str(path), {})
-        video_id = upsert_video(
-            conn,
-            {
-                "platform": "wechat_channels",
-                "source_url": source_url,
-                "source_id": f"local:{source_hash}",
-                "creator_id": creator_id,
-                "title": clean_local_wechat_title(path),
-                "description": clean_local_wechat_title(path),
-                "media_path": str(path),
-                "metadata": {
+        feed_id = str(task_item.get("feed_id") or "").strip()
+        import_metadata = {
+            "local_download_import": {
+                "file_name": path.name,
+                "file_size": stat.st_size,
+                "file_mtime": stat.st_mtime,
+                "import_directory": str(directory),
+                "download_batch_id": batch_id,
+                "wechat_download_task_id": task_item.get("task_id"),
+                "wechat_feed_id": feed_id or None,
+                "wechat_spec": task_item.get("spec"),
+                "wechat_task_created_at": task_item.get("created_at"),
+                "wechat_task_updated_at": task_item.get("updated_at"),
+            }
+        }
+        existing_feed_video = find_wechat_video_by_feed_id(conn, feed_id)
+        if existing_feed_video:
+            video_id = int(existing_feed_video["id"])
+            update_video_paths(conn, video_id, media_path=str(path), status=keep_status_after_media_attach(existing_feed_video.get("status")))
+            merge_video_metadata(conn, video_id, import_metadata)
+            attached_existing_count += 1
+            metadata_backfill_count += 1
+        else:
+            existing = conn.execute("SELECT id FROM videos WHERE source_url = ?", (source_url,)).fetchone()
+            if not existing:
+                new_count += 1
+                created_local_count += 1
+            title = str(task_item.get("title") or clean_local_wechat_title(path)).strip() or clean_local_wechat_title(path)
+            video_id = upsert_video(
+                conn,
+                {
                     "platform": "wechat_channels",
-                    "source": "local_wechat_download_import",
-                    "file_name": path.name,
-                    "file_size": stat.st_size,
-                    "file_mtime": stat.st_mtime,
-                    "import_directory": str(directory),
-                    "download_batch_id": batch_id,
-                    "wechat_download_task_id": task_item.get("task_id"),
-                    "wechat_feed_id": task_item.get("feed_id"),
-                    "wechat_spec": task_item.get("spec"),
-                    "wechat_task_created_at": task_item.get("created_at"),
-                    "wechat_task_updated_at": task_item.get("updated_at"),
+                    "source_url": source_url,
+                    "source_id": feed_id or f"local:{source_hash}",
+                    "creator_id": creator_id,
+                    "title": title,
+                    "description": title,
+                    "media_path": str(path),
+                    "metadata": {
+                        "platform": "wechat_channels",
+                        "source": "local_wechat_download_import",
+                        "file_name": path.name,
+                        "file_size": stat.st_size,
+                        "file_mtime": stat.st_mtime,
+                        "import_directory": str(directory),
+                        "download_batch_id": batch_id,
+                        "wechat_download_task_id": task_item.get("task_id"),
+                        "wechat_feed_id": feed_id or None,
+                        "wechat_spec": task_item.get("spec"),
+                        "wechat_task_created_at": task_item.get("created_at"),
+                        "wechat_task_updated_at": task_item.get("updated_at"),
+                    },
+                    "status": "downloaded",
                 },
-                "status": "downloaded",
-            },
-        )
-        imported_ids.append(video_id)
+            )
+        if video_id not in imported_id_set:
+            imported_id_set.add(video_id)
+            imported_ids.append(video_id)
         if task_id:
             set_task_progress(
                 task_id,
@@ -722,6 +818,9 @@ def import_local_wechat_downloads(
         "file_count": len(files),
         "imported_count": len(imported_ids),
         "new_count": new_count,
+        "attached_existing_count": attached_existing_count,
+        "created_local_count": created_local_count,
+        "metadata_backfill_count": metadata_backfill_count,
         "video_ids": imported_ids,
         "library_count": len(library),
         "creator_id": creator_id,
@@ -1087,11 +1186,12 @@ class AppHandler(SimpleHTTPRequestHandler):
         if path == "/api/wechat-channels/harvest":
             try:
                 payload = read_json(self)
-                username = str(payload.get("username") or "").strip()
-                if not username:
-                    raise ValueError("请填写视频号 username，例如 v2_xxx@finder")
+                username_input = str(payload.get("username") or "").strip()
+                if not username_input:
+                    raise ValueError("请填写视频号作者关键词或 username")
                 category = str(payload.get("category") or "未分类").strip() or "未分类"
                 base_url = wechat_base_url(payload.get("base_url"))
+                username, resolved_contact = resolve_wechat_username(username_input, base_url)
                 max_pages_raw = bounded_int(payload.get("max_pages"), 100, 0, 200)
                 max_pages = max_pages_raw or None
                 top_comments = bounded_int(payload.get("top_comments"), 10, 0, 50)
@@ -1126,6 +1226,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "wechat.harvest_start",
                     task_id=task_id,
                     username=username,
+                    username_input=username_input,
                     category=category,
                     base_url=base_url,
                     max_pages=max_pages,
@@ -1181,6 +1282,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                         "task_id": task_id,
                         "result": {
                             "username": username,
+                            "username_input": username_input,
+                            "resolved_contact": resolved_contact,
                             "creator_nickname": result.get("creator_nickname"),
                             "video_count": result.get("video_count"),
                             "fetched_video_count": result.get("fetched_video_count"),

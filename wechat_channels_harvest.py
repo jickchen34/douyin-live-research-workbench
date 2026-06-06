@@ -58,7 +58,7 @@ def assert_channels_ready(base_url: str) -> None:
     if not status.get("ok"):
         raise WeChatChannelsError(status.get("error") or "视频号本地服务不可用")
     if not status.get("available"):
-        raise WeChatChannelsError("视频号本地服务已启动，但微信 PC 视频号页面尚未完成 socket 初始化。请通过代理打开视频号作者页，等待页面出现下载或批量下载按钮。")
+        log_event(LOGGER, "wechat.status_available_false_but_api_ok", base_url=base_url, message=status.get("message"))
 
 
 def search_contacts(keyword: str, base_url: str = DEFAULT_BASE_URL, next_marker: str = "") -> dict[str, Any]:
