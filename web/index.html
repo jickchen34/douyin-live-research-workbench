@@ -144,6 +144,26 @@
     .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .workbench { display: grid; grid-template-rows: auto auto auto; gap: 16px; }
+    .workbench-source-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      width: fit-content;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-3);
+    }
+    .source-tab {
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .source-panel { display: none; }
+    .source-panel.active { display: block; }
     .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(140px, 0.65fr) repeat(3, minmax(108px, 0.5fr)) minmax(96px, auto) auto minmax(116px, auto); gap: 10px; align-items: end; }
     .harvest-form .category-field { min-width: 140px; display: grid; gap: 6px; }
     .post-harvest-options { display: flex; align-items: center; gap: 12px; min-height: 38px; }
@@ -511,6 +531,8 @@
       .tabs, .summary { justify-content: flex-start; flex-wrap: wrap; overflow: visible; }
       .page { padding: 14px; }
       .harvest-form, .batch-filters, .filter-bar, .grid-2, .grid-3, .grid-4, .status-strip, .metric-row, .analysis-grid { grid-template-columns: 1fr; }
+      .workbench-source-tabs { width: 100%; }
+      .source-tab { flex: 1; }
       .card-grid { grid-template-columns: 1fr; }
       .detail-page, .detail-page.right-open, .detail-page.left-collapsed, .detail-page.left-collapsed.right-open { grid-template-columns: 1fr; }
       .side-list { position: static; height: auto; max-height: 360px; }
@@ -578,6 +600,22 @@
       color: #171614;
       background: #fffaf3;
       border-color: rgba(48, 48, 46, 0.14);
+      box-shadow: 0 1px 2px rgba(48,48,46,0.08);
+    }
+    .workbench-source-tabs {
+      border-color: rgba(48, 48, 46, 0.10);
+      background: #eee6d9;
+    }
+    .source-tab {
+      background: transparent;
+      border-color: transparent;
+      color: #756f64;
+      box-shadow: none;
+    }
+    .source-tab.active {
+      background: #fffaf3;
+      border-color: rgba(48, 48, 46, 0.14);
+      color: #171614;
       box-shadow: 0 1px 2px rgba(48,48,46,0.08);
     }
     .pill {
@@ -801,7 +839,12 @@
     <main class="content">
       <section id="page-workbench" class="page active">
         <div class="workbench">
-          <section class="panel">
+          <div class="workbench-source-tabs" role="tablist" aria-label="账号采集平台">
+            <button id="douyinSourceTab" class="source-tab active" type="button" data-source-tab="douyin" role="tab" aria-selected="true">抖音账号采集</button>
+            <button id="wechatSourceTab" class="source-tab" type="button" data-source-tab="wechat" role="tab" aria-selected="false">视频号账号采集</button>
+          </div>
+
+          <section id="douyinSourcePanel" class="panel source-panel active" data-source-panel="douyin" role="tabpanel" aria-labelledby="douyinSourceTab">
             <div class="panel-head">
               <div>
                 <h2>账号采集</h2>
@@ -849,7 +892,7 @@
             <div id="status" class="status-box">待命。默认会尽量扫描账号全部作品，再按点赞 Top N 和最低点赞数筛选。</div>
           </section>
 
-          <section class="panel">
+          <section id="wechatSourcePanel" class="panel source-panel" data-source-panel="wechat" role="tabpanel" aria-labelledby="wechatSourceTab">
             <div class="panel-head">
               <div>
                 <h2>微信视频号采集</h2>
@@ -903,8 +946,8 @@
             <div class="wechat-local-tools">
               <div class="panel-head compact">
                 <div>
-                  <h3>视频号本地转录</h3>
-                  <div class="muted">把项目下载目录中的视频号 mp4 导入素材库，然后复用现有豆包 ASR 转录。</div>
+                  <h3>视频号下载批次</h3>
+                  <div class="muted">从微信视频号页面批量下载后，读取下载批次并导入素材库。</div>
                 </div>
                 <span id="wechatLocalCountBadge" class="pill">未扫描</span>
               </div>
@@ -917,7 +960,6 @@
                   <label for="wechatLocalCreator">账号名称</label>
                   <input id="wechatLocalCreator" placeholder="例如：开心大洋芋" />
                 </div>
-                <button id="wechatScanLocalButton" type="button">扫描本地视频</button>
                 <button id="wechatScanBatchesButton" type="button">读取下载批次</button>
                 <button id="wechatImportLocalButton" type="button">导入素材库</button>
                 <button id="wechatImportTranscribeButton" class="primary" type="button">导入并转录</button>
@@ -925,9 +967,9 @@
               <div class="wechat-local-actions">
                 <label class="toggle"><input id="wechatAnalyzeLocalAfterTranscribe" type="checkbox" /> 转录后分析</label>
                 <label class="toggle"><input id="wechatDeleteLocalAfterTranscribe" type="checkbox" /> 转录后删除视频</label>
-                <span class="muted">只处理 mp4/m4v/mov/webm，自动跳过 zip。</span>
+                <span class="muted">只导入选中的下载批次，自动跳过 zip。</span>
               </div>
-              <div id="wechatLocalStatus" class="status-box">下载完成后先点击“扫描本地视频”，确认数量后再导入或转录。</div>
+              <div id="wechatLocalStatus" class="status-box">下载完成后点击“读取下载批次”，选择批次后再导入或转录。</div>
               <div id="wechatBatchList" class="wechat-batch-list"></div>
             </div>
           </section>
@@ -997,7 +1039,7 @@
               <div class="muted">筛选素材卡片，勾选后可批量处理，点击卡片进入信息页面。</div>
             </div>
             <div class="toolbar-actions">
-              <button type="button" id="selectAllButton">全选全部</button>
+              <button type="button" id="selectAllButton">全选当前筛选</button>
               <button type="button" id="selectVisibleButton">选择当前筛选</button>
               <button type="button" id="clearSelectionButton" class="ghost">清空选择</button>
               <button type="button" id="selectedTranscribeButton" class="primary">转录已选</button>
@@ -1144,6 +1186,7 @@
     let selectedId = null;
     let selectedIds = new Set();
     let currentPage = 'workbench';
+    let activeWorkbenchSource = 'douyin';
     let busy = false;
     let leftRailCollapsed = false;
     let rightRailOpen = false;
@@ -1165,9 +1208,10 @@
     const els = {};
     function bind() {
       for (const id of [
+        'douyinSourceTab','wechatSourceTab','douyinSourcePanel','wechatSourcePanel',
         'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','deleteMediaAfterHarvestTranscribe','runButton','status','refreshButton',
         'wechatReadyBadge','wechatBaseUrl','wechatStartButton','wechatStopButton','wechatCheckButton','wechatOpenGuideButton','wechatStatus','wechatKeyword','wechatSearchButton','wechatUsername','wechatTopVideos','wechatMinLikes','wechatTopComments','wechatHarvestButton','wechatSearchResults','wechatDownload','wechatWaitDownload','wechatTranscribeAfterHarvest','wechatAnalyzeAfterHarvest',
-        'wechatLocalDir','wechatLocalCreator','wechatScanLocalButton','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton','wechatAnalyzeLocalAfterTranscribe','wechatDeleteLocalAfterTranscribe','wechatLocalCountBadge','wechatLocalStatus','wechatBatchList',
+        'wechatLocalDir','wechatLocalCreator','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton','wechatAnalyzeLocalAfterTranscribe','wechatDeleteLocalAfterTranscribe','wechatLocalCountBadge','wechatLocalStatus','wechatBatchList',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','deleteMediaAfterBatchTranscribe',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
@@ -1245,7 +1289,7 @@
         if (els.loadingText) els.loadingText.textContent = els.status?.textContent || '请稍候，当前操作完成前请不要重复点击。';
         if (!els.loadingProgressLabel?.textContent || els.loadingProgressLabel.textContent === '未开始') resetProgress('准备中');
       }
-      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton','wechatStartButton','wechatStopButton','wechatCheckButton','wechatSearchButton','wechatHarvestButton','wechatScanLocalButton','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton']) {
+      for (const id of ['runButton','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','updateCreatorButton','douyinSourceTab','wechatSourceTab','wechatStartButton','wechatStopButton','wechatCheckButton','wechatSearchButton','wechatHarvestButton','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton']) {
         if (els[id]) els[id].disabled = value;
       }
       if (!value && currentPage === 'library') renderLibraryCreatorCard();
@@ -1600,29 +1644,6 @@
         };
       }
     }
-    async function scanWechatLocalDownloads() {
-      if (busy) return;
-      setBusy(true);
-      resetProgress('扫描视频号本地视频');
-      setWechatLocalStatus('正在扫描项目内视频号下载目录。');
-      try {
-        const params = new URLSearchParams();
-        if (wechatLocalDirectory()) params.set('directory', wechatLocalDirectory());
-        const data = await requestJson('/api/wechat-channels/local-downloads' + (params.toString() ? '?' + params.toString() : ''));
-        if (els.wechatLocalCountBadge) {
-          els.wechatLocalCountBadge.textContent = `${fmt(data.count)} 个视频`;
-          els.wechatLocalCountBadge.className = 'pill ' + (data.count ? 'cyan' : 'amber');
-        }
-        updateProgress('扫描视频号本地视频', 1, 1, 1, 0);
-        const names = (data.items || []).slice(0, 5).map(item => item.title).join('、');
-        setWechatLocalStatus(data.count ? `扫描完成：${data.directory} 中有 ${fmt(data.count)} 个可导入视频。${names ? '示例：' + names : ''}` : `扫描完成：${data.directory} 中没有可导入视频。`, data.count ? 'ok' : 'bad');
-      } catch (error) {
-        updateProgress('扫描视频号本地视频', 1, 1, 0, 1);
-        setWechatLocalStatus(String(error.message || error), 'bad');
-      } finally {
-        setBusy(false);
-      }
-    }
     async function scanWechatDownloadBatches() {
       if (busy) return;
       setBusy(true);
@@ -1641,7 +1662,7 @@
         }
         updateProgress('读取视频号下载批次', 1, 1, 1, 0);
         const selected = selectedWechatBatch();
-        setWechatLocalStatus(data.count ? `读取完成：找到 ${fmt(data.count)} 个下载批次，已默认选中最新一批（${fmt(selected?.count || 0)} 个视频）。` : '没有找到可导入的下载批次；可以改用“扫描本地视频”按全目录导入。', data.count ? 'ok' : 'bad');
+        setWechatLocalStatus(data.count ? `读取完成：找到 ${fmt(data.count)} 个下载批次，已默认选中最新一批（${fmt(selected?.count || 0)} 个视频）。` : '没有找到可导入的下载批次，请先在微信视频号页面完成批量下载。', data.count ? 'ok' : 'bad');
       } catch (error) {
         updateProgress('读取视频号下载批次', 1, 1, 0, 1);
         setWechatLocalStatus(String(error.message || error), 'bad');
@@ -1660,21 +1681,25 @@
         return;
       }
       const batch = selectedWechatBatch();
+      if (!batch) {
+        setWechatLocalStatus('请先点击“读取下载批次”，并选择一个下载批次。', 'bad');
+        return;
+      }
       const taskId = makeTaskId('wechat_import');
       const payload = {
         task_id: taskId,
         directory: wechatLocalDirectory(),
         creator_name: creatorName,
         category: selectedHarvestCategory(),
+        base_url: els.wechatBaseUrl?.value || '',
+        top_comments: Number(els.wechatTopComments?.value || 10),
       };
-      if (batch) {
-        payload.batch_id = batch.batch_id;
-        payload.file_paths = batch.paths || [];
-        payload.file_items = batch.items || [];
-      }
+      payload.batch_id = batch.batch_id;
+      payload.file_paths = batch.paths || [];
+      payload.file_items = batch.items || [];
       setBusy(true);
       resetProgress(shouldTranscribe ? '导入并转录视频号下载批次' : '导入视频号下载批次');
-      const scopeText = batch ? `下载批次 ${batch.batch_id}（${fmt(batch.count)} 个视频）` : '本地目录全部视频';
+      const scopeText = `下载批次 ${batch.batch_id}（${fmt(batch.count)} 个视频）`;
       setWechatLocalStatus(shouldTranscribe ? `正在导入${scopeText}，导入完成后会自动提交批量转录。` : `正在导入${scopeText}到素材库。`);
       startProgressPolling(taskId);
       try {
@@ -1688,8 +1713,11 @@
         const attached = Number(data.result.attached_existing_count || 0);
         const createdLocal = Number(data.result.created_local_count ?? data.result.new_count ?? 0);
         const backfilled = Number(data.result.metadata_backfill_count || 0);
+        const commentSaved = Number(data.result.comments_backfill_count || 0);
+        const commentFailed = Number(data.result.comment_failure_count || 0);
         const enrichText = attached ? `，匹配并回补已有采集数据 ${fmt(backfilled)} 个` : '';
-        setWechatLocalStatus(`导入完成：${scopeText}，入库 ${fmt(data.result.imported_count)} 个，新建本地素材 ${fmt(createdLocal)} 个${enrichText}，作者 ${creatorName}。`, 'ok');
+        const commentText = commentSaved || commentFailed ? `，评论保存 ${fmt(commentSaved)} 条${commentFailed ? `，${fmt(commentFailed)} 个视频评论拉取失败` : ''}` : '';
+        setWechatLocalStatus(`导入完成：${scopeText}，入库 ${fmt(data.result.imported_count)} 个，新建本地素材 ${fmt(createdLocal)} 个${enrichText}${commentText}，作者 ${creatorName}。`, commentFailed ? 'bad' : 'ok');
         await loadAll();
         if (shouldTranscribe) {
           await autoProcessHarvestedVideos(data.result.video_ids || [], { transcribe: true, analyze: shouldAnalyze, deleteMediaAfterTranscribe: shouldDeleteMedia });
@@ -2096,6 +2124,19 @@
         renderCompactList();
       }
     }
+    function switchWorkbenchSource(source) {
+      activeWorkbenchSource = source === 'wechat' ? 'wechat' : 'douyin';
+      for (const tab of [els.douyinSourceTab, els.wechatSourceTab]) {
+        if (!tab) continue;
+        const active = tab.dataset.sourceTab === activeWorkbenchSource;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      }
+      for (const panel of [els.douyinSourcePanel, els.wechatSourcePanel]) {
+        if (!panel) continue;
+        panel.classList.toggle('active', panel.dataset.sourcePanel === activeWorkbenchSource);
+      }
+    }
     function openDetail(id) {
       selectedId = id;
       const row = rows.find(r => r.id === selectedId);
@@ -2410,6 +2451,7 @@
     }
     function attachEvents() {
       document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
+      document.querySelectorAll('[data-source-tab]').forEach(tab => tab.onclick = () => switchWorkbenchSource(tab.dataset.sourceTab));
       els.harvestForm.addEventListener('submit', async event => {
         event.preventDefault(); setBusy(true); resetProgress('账号采集'); setStatus('采集中：正在解析主页、筛选作品、下载视频并抓取评论。');
         const shouldAutoTranscribe = els.autoTranscribeAfterHarvest.checked;
@@ -2436,7 +2478,6 @@
       els.wechatCheckButton.onclick = checkWechatChannels;
       els.wechatSearchButton.onclick = searchWechatContacts;
       els.wechatHarvestButton.onclick = harvestWechatChannels;
-      els.wechatScanLocalButton.onclick = scanWechatLocalDownloads;
       els.wechatScanBatchesButton.onclick = scanWechatDownloadBatches;
       els.wechatImportLocalButton.onclick = () => importWechatLocalDownloads({ transcribe: false });
       els.wechatImportTranscribeButton.onclick = () => importWechatLocalDownloads({ transcribe: true });
@@ -2457,7 +2498,7 @@
       els.batchNoSpeechButton.onclick = () => markRowsNoSpeech(batchCandidates());
       els.batchDeleteButton.onclick = () => deleteRows(batchCandidates());
       els.refreshButton.onclick = () => loadAll().catch(e => setStatus(e.message, 'bad'));
-      els.selectAllButton.onclick = () => { for (const r of rows) selectedIds.add(r.id); renderLibrary(); };
+      els.selectAllButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
       els.selectVisibleButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
       els.clearSelectionButton.onclick = () => { selectedIds.clear(); renderLibrary(); };
       els.selectedTranscribeButton.onclick = () => runBatch('transcribe', selectedRows());

@@ -32,6 +32,7 @@ from db import (
     record_failed_task,
     safe_unlink,
     save_analysis,
+    save_video_comments,
     save_harvest_result,
     save_wechat_channels_result,
     save_transcript,
@@ -45,7 +46,7 @@ from douyin_creator_harvest import harvest_target
 from volcengine import analyze_with_doubao, load_local_env, parse_json_object
 from wechat_channels_harvest import DEFAULT_BASE_URL as WECHAT_CHANNELS_DEFAULT_BASE_URL
 from wechat_channels_harvest import check_status as check_wechat_channels_status
-from wechat_channels_harvest import harvest_wechat_channels, list_download_tasks, search_contacts
+from wechat_channels_harvest import fetch_top_comments, harvest_wechat_channels, list_download_tasks, search_contacts
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -624,6 +625,7 @@ def list_wechat_download_batches(
             {
                 "task_id": task.get("id"),
                 "feed_id": labels.get("id"),
+                "nonce_id": labels.get("nonce_id"),
                 "spec": labels.get("spec"),
                 **count_labels,
                 "raw_like_text": labels.get("raw_like_text"),
@@ -738,6 +740,14 @@ def update_video_counts_from_task_item(conn, video_id: int, task_item: dict) -> 
     conn.commit()
 
 
+def fetch_wechat_task_item_comments(base_url: str, task_item: dict, limit: int) -> tuple[list[dict], dict]:
+    feed_id = str(task_item.get("feed_id") or "").strip()
+    nonce_id = str(task_item.get("nonce_id") or "").strip()
+    if not feed_id or not nonce_id or limit <= 0:
+        return [], {}
+    return fetch_top_comments(base_url, {"id": feed_id, "objectNonceId": nonce_id}, limit)
+
+
 def find_wechat_video_by_feed_id(conn, feed_id: str) -> dict | None:
     if not feed_id:
         return None
@@ -770,6 +780,8 @@ def import_local_wechat_downloads(
     file_paths: list[object] | None = None,
     file_items: list[dict] | None = None,
     batch_id: str | None = None,
+    comment_limit: int = 10,
+    base_url: str = WECHAT_CHANNELS_DEFAULT_BASE_URL,
 ) -> dict:
     if file_items:
         file_paths = [item.get("path") for item in file_items if isinstance(item, dict)]
@@ -790,6 +802,8 @@ def import_local_wechat_downloads(
     attached_existing_count = 0
     created_local_count = 0
     metadata_backfill_count = 0
+    comments_backfill_count = 0
+    comment_failure_count = 0
     for index, path in enumerate(files, start=1):
         source_hash = hashlib.sha1(str(path).encode("utf-8")).hexdigest()
         source_url = f"wechat_channels://local/{source_hash}"
@@ -805,6 +819,7 @@ def import_local_wechat_downloads(
                 "download_batch_id": batch_id,
                 "wechat_download_task_id": task_item.get("task_id"),
                 "wechat_feed_id": feed_id or None,
+                "wechat_nonce_id": task_item.get("nonce_id"),
                 "wechat_spec": task_item.get("spec"),
                 "wechat_task_created_at": task_item.get("created_at"),
                 "wechat_task_updated_at": task_item.get("updated_at"),
@@ -849,6 +864,7 @@ def import_local_wechat_downloads(
                         "download_batch_id": batch_id,
                         "wechat_download_task_id": task_item.get("task_id"),
                         "wechat_feed_id": feed_id or None,
+                        "wechat_nonce_id": task_item.get("nonce_id"),
                         "wechat_spec": task_item.get("spec"),
                         "wechat_task_created_at": task_item.get("created_at"),
                         "wechat_task_updated_at": task_item.get("updated_at"),
@@ -868,6 +884,37 @@ def import_local_wechat_downloads(
         if video_id not in imported_id_set:
             imported_id_set.add(video_id)
             imported_ids.append(video_id)
+        if comment_limit > 0 and task_item:
+            try:
+                comments, count_info = fetch_wechat_task_item_comments(base_url, task_item, comment_limit)
+                save_video_comments(conn, video_id, comments)
+                merge_video_metadata(
+                    conn,
+                    video_id,
+                    {
+                        "wechat_comment_import": {
+                            "download_batch_id": batch_id,
+                            "comment_count_info": count_info,
+                            "saved_count": len(comments),
+                            "updated_at": now_iso(),
+                        }
+                    },
+                )
+                comments_backfill_count += len(comments)
+            except Exception as e:
+                comment_failure_count += 1
+                merge_video_metadata(
+                    conn,
+                    video_id,
+                    {
+                        "wechat_comment_import": {
+                            "download_batch_id": batch_id,
+                            "error": f"{type(e).__name__}: {e}",
+                            "updated_at": now_iso(),
+                        }
+                    },
+                )
+                log_event(LOGGER, "wechat.local_import_comments_failure", video_id=video_id, feed_id=feed_id or None, error=f"{type(e).__name__}: {e}")
         if task_id:
             set_task_progress(
                 task_id,
@@ -888,6 +935,8 @@ def import_local_wechat_downloads(
         "attached_existing_count": attached_existing_count,
         "created_local_count": created_local_count,
         "metadata_backfill_count": metadata_backfill_count,
+        "comments_backfill_count": comments_backfill_count,
+        "comment_failure_count": comment_failure_count,
         "video_ids": imported_ids,
         "library_count": len(library),
         "creator_id": creator_id,
@@ -902,6 +951,11 @@ def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
     except Exception:
         parsed = default
     return max(minimum, min(maximum, parsed))
+
+
+def is_no_speech_asr_error(value: object) -> bool:
+    text = str(value or "").lower()
+    return "normal silence audio" in text or "no valid speech" in text or "未检测到有效口播" in text
 
 
 def export_current_library() -> list[dict]:
@@ -990,9 +1044,25 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
         conn.commit()
     audio_path = extract_audio_for_asr(row["media_path"], video_id)
     update_video_paths(conn, video_id, audio_path=str(audio_path), status="audio_ready")
-    asr_result = recognize_audio_file(audio_path)
+    try:
+        asr_result = recognize_audio_file(audio_path)
+    except Exception as e:
+        error_text = f"{type(e).__name__}: {e}"
+        if is_no_speech_asr_error(error_text):
+            update_video_paths(conn, video_id, status="no_speech", error="豆包语音 ASR 未检测到有效口播")
+            clear_failed_task(conn, "transcribe", video_id)
+            export_library_safely(conn)
+            log_event(LOGGER, "transcribe.no_speech", video_id=video_id, audio_path=str(audio_path), error=error_text)
+            return {"video_id": video_id, "audio_path": str(audio_path), "no_speech": True, "transcript_length": 0}
+        raise
     transcript_text = extract_transcript_text(asr_result)
     if not transcript_text:
+        if is_no_speech_asr_error(json.dumps(asr_result, ensure_ascii=False)):
+            update_video_paths(conn, video_id, status="no_speech", error="豆包语音 ASR 未检测到有效口播")
+            clear_failed_task(conn, "transcribe", video_id)
+            export_library_safely(conn)
+            log_event(LOGGER, "transcribe.no_speech", video_id=video_id, audio_path=str(audio_path))
+            return {"video_id": video_id, "audio_path": str(audio_path), "no_speech": True, "transcript_length": 0}
         raise RuntimeError(f"豆包语音 ASR 未返回可用文本：{json.dumps(asr_result, ensure_ascii=False)[:1000]}")
     result_path = save_asr_result(video_id, asr_result)
     save_transcript(conn, video_id, transcript_text, str(result_path), "doubao-asr", os.environ.get("DOUBAO_ASR_RESOURCE_ID", ""))
@@ -1210,8 +1280,20 @@ class AppHandler(SimpleHTTPRequestHandler):
                 if file_items is not None and not isinstance(file_items, list):
                     raise ValueError("file_items 必须是数组")
                 batch_id = str(payload.get("batch_id") or "").strip() or None
+                top_comments = bounded_int(payload.get("top_comments"), 10, 0, 50)
+                base_url = wechat_base_url(payload.get("base_url"))
                 set_task_progress(task_id, stage="start", label="导入视频号本地视频", done=0, total=0, success=0, fail=0, status="running")
-                result = import_local_wechat_downloads(creator_name, category, directory, task_id=task_id, file_paths=file_paths, file_items=file_items, batch_id=batch_id)
+                result = import_local_wechat_downloads(
+                    creator_name,
+                    category,
+                    directory,
+                    task_id=task_id,
+                    file_paths=file_paths,
+                    file_items=file_items,
+                    batch_id=batch_id,
+                    comment_limit=top_comments,
+                    base_url=base_url,
+                )
                 clear_failed_task(connect(), "wechat_import")
                 set_task_progress(
                     task_id,

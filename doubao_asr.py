@@ -131,6 +131,11 @@ def request_json(url: str, payload: dict | None, headers: dict[str, str], timeou
     return data, response_headers
 
 
+def is_no_valid_speech_message(value: object) -> bool:
+    text = str(value or "").lower()
+    return "normal silence audio" in text or "no valid speech" in text
+
+
 def audio_url_for_standard(audio_path: Path) -> str:
     direct = os.environ.get("DOUBAO_ASR_AUDIO_URL", "").strip()
     if direct:
@@ -289,6 +294,8 @@ def recognize_audio_file_standard(audio: Path, suffix: str, config: dict) -> dic
         )
         status_code = last_headers.get("x-api-status-code")
         status_message = last_headers.get("x-api-message") or ""
+        if is_no_valid_speech_message(status_message):
+            raise RuntimeError(f"豆包语音 ASR 未检测到有效口播：{status_code or ''} {status_message} {json.dumps(last_data, ensure_ascii=False)[:1000]}")
         if status_code in {"20000000", "0"}:
             last_data["_headers"] = {
                 "x_api_status_code": status_code,
