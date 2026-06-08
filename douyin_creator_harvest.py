@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import httpx
 from app_logging import log_event
 
@@ -25,7 +25,8 @@ RAW_DIR = ROOT / "data" / "douyin_raw"
 MEDIA_DIR = ROOT / "data" / "douyin_media"
 LOGGER = logging.getLogger("douyin_live_research.harvest")
 
-SEC_UID_RE = re.compile(r"^MS4w[\w.-]+")
+SEC_UID_RE = re.compile(r"^MS4w[\w.-]+$")
+SEC_UID_IN_TEXT_RE = re.compile(r"MS4w[\w.-]+")
 URL_RE = re.compile(r"https?://")
 
 
@@ -244,6 +245,26 @@ def normalize_creator(user: dict, sec_user_id: str) -> dict:
     }
 
 
+def extract_sec_user_id_from_target(target: str) -> str | None:
+    target = target.strip()
+    if SEC_UID_RE.match(target):
+        return target
+    if not URL_RE.search(target):
+        return None
+    parsed = urlparse(target)
+    query = parse_qs(parsed.query)
+    for key in ("sec_uid", "sec_user_id"):
+        values = query.get(key)
+        if values:
+            match = SEC_UID_IN_TEXT_RE.search(unquote(values[-1]))
+            if match:
+                return match.group(0)
+    match = SEC_UID_IN_TEXT_RE.search(unquote(parsed.path))
+    if match:
+        return match.group(0)
+    return None
+
+
 def creator_from_videos(videos: list[dict], sec_user_id: str) -> dict:
     for video in videos:
         raw_author = ((video.get("raw") or {}).get("author") or {})
@@ -269,8 +290,9 @@ async def fetch_creator_profile(crawler: DouyinWebCrawler, sec_user_id: str) -> 
 
 async def resolve_sec_user_id(crawler: DouyinWebCrawler, target: str) -> tuple[str, dict | None]:
     target = target.strip()
-    if SEC_UID_RE.match(target):
-        return target, None
+    static_sec_user_id = extract_sec_user_id_from_target(target)
+    if static_sec_user_id:
+        return static_sec_user_id, None
     if URL_RE.search(target):
         return await crawler.get_sec_user_id(target), None
     candidates = await search_user_candidates(target)
