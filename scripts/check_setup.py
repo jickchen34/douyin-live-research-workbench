@@ -17,7 +17,7 @@ def load_env_file() -> dict[str, str]:
     values: dict[str, str] = {}
     if not ENV_PATH.exists():
         return values
-    for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+    for raw_line in ENV_PATH.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
