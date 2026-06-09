@@ -164,7 +164,7 @@
     }
     .source-panel { display: none; }
     .source-panel.active { display: block; }
-    .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(140px, 0.65fr) repeat(3, minmax(108px, 0.5fr)) minmax(96px, auto) auto minmax(116px, auto); gap: 10px; align-items: end; }
+    .harvest-form { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(140px, 0.65fr) repeat(4, minmax(108px, 0.5fr)) minmax(96px, auto) auto minmax(116px, auto); gap: 10px; align-items: end; }
     .harvest-form .category-field { min-width: 140px; display: grid; gap: 6px; }
     .post-harvest-options { display: flex; align-items: center; gap: 12px; min-height: 38px; }
     .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); min-height: 38px; margin: 0; }
@@ -302,6 +302,24 @@
     }
     .creator-tag-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
     .content-filters { display: grid; gap: 8px; margin-bottom: 2px; }
+    .sort-group {
+      display: grid;
+      gap: 6px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.025);
+    }
+    .sort-group-title {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 760;
+    }
+    .sort-option {
+      min-height: 28px;
+      color: var(--text);
+      font-size: 12px;
+    }
     .compact-list { display: grid; gap: 8px; max-height: calc(100vh - 300px); overflow: auto; padding-right: 2px; }
     .compact-card {
       border: 1px solid transparent;
@@ -398,6 +416,76 @@
     .analysis-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-3); padding: 16px; }
     .analysis-item h4 { margin: 0 0 10px; font-size: 15px; color: var(--cyan); }
     .analysis-item p, .analysis-item ul { margin: 0; color: #dfe9e4; font-size: 19px; line-height: 2.05; padding-left: 20px; }
+    .agent-shell { display: grid; gap: 14px; }
+    .agent-topbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .agent-session-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .agent-composer { border: 1px solid var(--line); border-radius: 14px; background: var(--panel-3); padding: 10px; display: grid; gap: 8px; box-shadow: 0 10px 24px rgba(0,0,0,0.10); }
+    .agent-composer-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .agent-chip { min-height: 30px; border-radius: 999px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--text); background: rgba(255,255,255,0.045); border: 1px solid var(--line); font-size: 12px; }
+    .agent-chip.active { color: var(--cyan); border-color: rgba(104,207,231,0.32); background: rgba(104,207,231,0.08); }
+    .agent-model { width: auto; min-width: 156px; min-height: 30px; border-radius: 999px; padding: 0 30px 0 10px; font-size: 12px; }
+    .skill-picker { position: relative; }
+    .skill-menu {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 8px);
+      left: 0;
+      width: min(420px, calc(100vw - 48px));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(0,0,0,0.28);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .skill-menu[hidden] { display: none; }
+    .skill-list { display: grid; gap: 8px; max-height: min(260px, 36vh); overflow-y: auto; padding-right: 2px; }
+    .skill-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-3); padding: 5px 6px; }
+    .skill-tag {
+      min-width: 0;
+      justify-content: flex-start;
+      border-radius: 999px;
+      padding: 0 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 760;
+    }
+    .skill-row-actions { display: inline-flex; align-items: center; gap: 4px; }
+    .skill-row-actions button { min-height: 28px; padding: 0 8px; font-size: 12px; }
+    .skill-editor { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .skill-editor textarea { min-height: 110px; resize: vertical; }
+    .agent-active-skill { color: var(--cyan); font-weight: 760; }
+    .agent-chat-list { display: grid; gap: 16px; }
+    .agent-message { display: grid; gap: 8px; }
+    .agent-message.user { justify-items: end; }
+    .agent-bubble { max-width: 92%; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-3); padding: 13px 14px; white-space: pre-wrap; line-height: 1.72; word-break: break-word; }
+    .agent-message.user .agent-bubble { background: rgba(104, 207, 231, 0.08); border-color: rgba(104, 207, 231, 0.24); }
+    .agent-message.assistant .agent-bubble { background: transparent; border-color: transparent; padding-left: 2px; padding-right: 2px; max-width: 100%; }
+    .agent-answer-tools { display: flex; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+    .agent-message.user .agent-answer-tools { justify-content: flex-end; }
+    .agent-question { min-height: 84px; resize: vertical; border-color: transparent; background: transparent; padding: 2px; line-height: 1.6; }
+    .agent-question:focus-visible { outline: 0; }
+    .agent-input-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .agent-send-row { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .agent-markdown { color: var(--text); line-height: 1.78; }
+    .agent-markdown h1, .agent-markdown h2, .agent-markdown h3 { margin: 18px 0 8px; line-height: 1.28; }
+    .agent-markdown h1 { font-size: 22px; }
+    .agent-markdown h2 { font-size: 19px; }
+    .agent-markdown h3 { font-size: 16px; }
+    .agent-markdown p { margin: 0 0 12px; }
+    .agent-markdown ul, .agent-markdown ol { margin: 0 0 12px; padding-left: 22px; }
+    .agent-markdown li { margin: 5px 0; }
+    .agent-markdown blockquote { margin: 12px 0; padding: 8px 12px; border-left: 3px solid rgba(104,207,231,0.38); color: var(--muted); background: rgba(255,255,255,0.025); }
+    .agent-markdown code { border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; background: rgba(255,255,255,0.05); }
+    .agent-markdown pre { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; overflow: auto; background: rgba(0,0,0,0.24); }
+    .agent-markdown pre code { border: 0; padding: 0; background: transparent; }
+    .agent-thinking { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+    .agent-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--muted); animation: agentPulse 1s infinite ease-in-out; }
+    .agent-dot:nth-child(2) { animation-delay: 120ms; }
+    .agent-dot:nth-child(3) { animation-delay: 240ms; }
+    @keyframes agentPulse { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     .talking-point-list { display: grid; gap: 12px; margin: 0; padding: 0; }
     .talking-point {
       border: 1px solid rgba(104, 207, 231, 0.18);
@@ -876,6 +964,10 @@
                 <input id="minLikes" type="number" min="0" value="0" />
               </div>
               <div>
+                <label for="publishedAfter">发布时间之后</label>
+                <input id="publishedAfter" type="date" />
+              </div>
+              <div>
                 <label for="topComments">评论数</label>
                 <input id="topComments" type="number" min="0" max="50" value="10" />
               </div>
@@ -1115,12 +1207,11 @@
                   <div class="content-filters">
                     <input id="detailKeyword" placeholder="筛选标题" />
                     <select id="detailStatus"></select>
-                    <select id="detailSort">
-                      <option value="likes_desc">点赞从高到低</option>
-                      <option value="likes_asc">点赞从低到高</option>
-                      <option value="score">素材分排序</option>
-                      <option value="updated">最近更新</option>
-                    </select>
+                    <div class="sort-group" role="group" aria-label="内容排序">
+                      <div class="sort-group-title">排序</div>
+                      <label class="toggle sort-option"><input id="detailSortLikes" type="checkbox" checked /> 点赞从高到低</label>
+                      <label class="toggle sort-option"><input id="detailSortPublished" type="checkbox" /> 发布时间从新到旧</label>
+                    </div>
                   </div>
                   <div id="compactList" class="compact-list"></div>
                   <button id="exportDetailListButton" class="export-list-button" type="button">导出全部</button>
@@ -1180,6 +1271,8 @@
     </div>
   </div>
 
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
   <script>
     let rows = [];
     let failedTasks = [];
@@ -1197,6 +1290,16 @@
     let wechatContacts = [];
     let wechatDownloadBatches = [];
     let selectedWechatBatchId = '';
+    let agentSkills = [];
+    let agentModels = [];
+    let agentChatsByVideo = new Map();
+    let agentSessionByVideo = new Map();
+    let agentSessionsByVideo = new Map();
+    let pendingAgentByVideo = new Map();
+    let selectedAgentSkillId = null;
+    let selectedAgentModelId = 'doubao-2-pro';
+    let agentSkillMenuOpen = false;
+    let editingAgentSkillId = null;
     const creatorColorSeed = Math.random();
     const collapsedBlocks = new Set();
     let progressPollTimer = null;
@@ -1209,13 +1312,14 @@
     function bind() {
       for (const id of [
         'douyinSourceTab','wechatSourceTab','douyinSourcePanel','wechatSourcePanel',
-        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','deleteMediaAfterHarvestTranscribe','runButton','status','refreshButton',
+        'summary','harvestForm','target','categorySelect','customCategoryInput','pageSize','maxPages','topVideos','minLikes','publishedAfter','topComments','download','autoTranscribeAfterHarvest','autoAnalyzeAfterHarvest','deleteMediaAfterHarvestTranscribe','runButton','status','refreshButton',
         'wechatReadyBadge','wechatBaseUrl','wechatStartButton','wechatStopButton','wechatCheckButton','wechatOpenGuideButton','wechatStatus','wechatKeyword','wechatSearchButton','wechatUsername','wechatTopVideos','wechatMinLikes','wechatTopComments','wechatHarvestButton','wechatSearchResults','wechatDownload','wechatWaitDownload','wechatTranscribeAfterHarvest','wechatAnalyzeAfterHarvest',
         'wechatLocalDir','wechatLocalCreator','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton','wechatAnalyzeLocalAfterTranscribe','wechatDeleteLocalAfterTranscribe','wechatLocalCountBadge','wechatLocalStatus','wechatBatchList',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','deleteMediaAfterBatchTranscribe',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
         'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
-        'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailStatus','detailSort','detailCreatorTags','detailListCount','compactList','exportDetailListButton','detailMain','currentTaskBadge','currentTaskPanel',
+        'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailStatus','detailSortLikes','detailSortPublished','detailCreatorTags','detailListCount','compactList','exportDetailListButton','detailMain','currentTaskBadge','currentTaskPanel',
+        'agentSkillButton','agentSkillMenu','agentSkillList','agentSkillName','agentSkillPrompt','agentSaveSkillButton','agentNewSkillButton','agentModelSelect','agentQuestion','agentSendButton','agentChatList','agentSelectedSkillBadge',
         'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText','loadingProgressLabel','loadingProgressCount','loadingProgressTrack','loadingProgressFill','loadingProgressSuccess','loadingProgressFail'
       ]) els[id] = document.getElementById(id);
     }
@@ -1754,10 +1858,30 @@
       const data = await requestJson('/api/logs?limit=140');
       els.logBox.textContent = data.logs && data.logs.length ? data.logs.join('\n') : '暂无日志';
     }
+    async function loadAgentMeta() {
+      const [skillsData, modelsData] = await Promise.all([
+        requestJson('/api/agent/skills?ts=' + Date.now()),
+        requestJson('/api/agent/models?ts=' + Date.now()),
+      ]);
+      agentSkills = skillsData.skills || [];
+      agentModels = modelsData.models || [];
+      if (!agentModels.some(model => model.id === selectedAgentModelId)) selectedAgentModelId = agentModels[0]?.id || 'doubao-2-pro';
+      if (selectedAgentSkillId && !agentSkills.some(skill => Number(skill.id) === Number(selectedAgentSkillId))) selectedAgentSkillId = null;
+    }
+    async function loadAgentChats(videoId) {
+      if (!videoId) return;
+      const data = await requestJson(`/api/agent/chats?video_id=${encodeURIComponent(videoId)}&ts=${Date.now()}`);
+      if (data.session) agentSessionByVideo.set(Number(videoId), data.session);
+      if (data.sessions) agentSessionsByVideo.set(Number(videoId), data.sessions);
+      agentChatsByVideo.set(Number(videoId), data.chats || []);
+    }
     async function loadAll() {
+      await loadAgentMeta();
       await loadLibrary();
       await loadFailedTasks();
       await loadLogs();
+      if (selectedId) await loadAgentChats(selectedId);
+      renderDetail();
     }
     function fillStatusSelect(select) {
       const old = select.value;
@@ -1877,6 +2001,26 @@
       ].map(text => `<span class="pill">${text}</span>`).join('');
     }
     function sortByScore(a, b) { return Number(b.score || 0) - Number(a.score || 0); }
+    function detailSortLabels() {
+      const labels = [];
+      if (els.detailSortLikes?.checked) labels.push('点赞从高到低');
+      if (els.detailSortPublished?.checked) labels.push('发布时间从新到旧');
+      return labels.length ? labels : ['默认顺序'];
+    }
+    function comparePublishedDesc(a, b) {
+      return String(b.published_at || '').localeCompare(String(a.published_at || ''));
+    }
+    function compareDetailRows(a, b) {
+      const comparers = [];
+      if (els.detailSortLikes?.checked) comparers.push((left, right) => Number(right.like_count || 0) - Number(left.like_count || 0));
+      if (els.detailSortPublished?.checked) comparers.push(comparePublishedDesc);
+      comparers.push((left, right) => Number(left.id || 0) - Number(right.id || 0));
+      for (const compare of comparers) {
+        const result = compare(a, b);
+        if (result !== 0) return result;
+      }
+      return 0;
+    }
     function creatorName(r) { return r.creator_name ? String(r.creator_name).trim() || '未知账号' : '未知账号'; }
     function detailCreatorNames() {
       return [...new Set(rows.map(creatorName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
@@ -1895,18 +2039,12 @@
       ensureDetailCreator();
       const keyword = (els.detailKeyword?.value || '').trim().toLowerCase();
       const status = els.detailStatus?.value || '';
-      const sort = els.detailSort?.value || 'likes_desc';
       const data = rows.filter(r => {
         return creatorName(r) === selectedDetailCreator
           && matchesStatus(r, status)
           && (!keyword || rowText(r).includes(keyword));
       });
-      return data.sort((a, b) => {
-        if (sort === 'likes_asc') return Number(a.like_count || 0) - Number(b.like_count || 0);
-        if (sort === 'score') return sortByScore(a, b);
-        if (sort === 'updated') return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
-        return Number(b.like_count || 0) - Number(a.like_count || 0);
-      });
+      return data.sort(compareDetailRows);
     }
     function renderSummary() {
       const creators = new Set(rows.map(r => r.creator_name).filter(Boolean));
@@ -2047,6 +2185,87 @@
       ];
       return `<div class="analysis-grid">${map.map(([key, label]) => `<div class="analysis-item ${key === 'live_talking_points' || key === 'risk_notes' ? 'wide' : ''}"><h4>${label}</h4>${key === 'live_talking_points' ? renderTalkingPoints(parsed[key]) : renderValue(parsed[key])}</div>`).join('')}</div>`;
     }
+    function selectedAgentSkill() {
+      return agentSkills.find(skill => Number(skill.id) === Number(selectedAgentSkillId)) || null;
+    }
+    function activeAgentSession(videoId) {
+      return agentSessionByVideo.get(Number(videoId)) || null;
+    }
+    function agentChatRows(videoId) {
+      return agentChatsByVideo.get(Number(videoId)) || [];
+    }
+    function renderMarkdown(value) {
+      const text = safe(value);
+      if (window.marked && window.DOMPurify) {
+        marked.setOptions({ breaks: true, gfm: true });
+        return DOMPurify.sanitize(marked.parse(text));
+      }
+      return html(text).replace(/\n/g, '<br>');
+    }
+    function agentModelOptions() {
+      const models = agentModels.length ? agentModels : [{id: 'doubao-2-pro', label: '豆包 2.0 Pro'}, {id: 'deepseek-4-pro', label: 'DeepSeek 4.0 Pro'}];
+      return models.map(model => `<option value="${html(model.id)}" ${model.id === selectedAgentModelId ? 'selected' : ''}>${html(model.label)}</option>`).join('');
+    }
+    function agentMessagesHtml(videoId) {
+      const chats = agentChatRows(videoId);
+      const pending = pendingAgentByVideo.get(Number(videoId));
+      if (!chats.length && !pending) return '<div class="empty">可以直接提问，或先选择一个 skill 再提问。</div>';
+      const done = chats.map(chat => `
+        <div class="agent-message user"><div class="agent-bubble">${chat.skill_name ? `<span class="agent-active-skill">@${html(chat.skill_name)}</span>\n` : ''}${html(chat.question)}</div><div class="agent-answer-tools"><button type="button" data-save-question-skill="${Number(chat.id)}">保存为 skill</button></div></div>
+        <div class="agent-message assistant"><div class="agent-bubble agent-markdown">${renderMarkdown(chat.answer)}</div><div class="agent-answer-tools"><span class="pill">${html(chat.model_label || chat.model_id || 'AI')}</span><button type="button" data-copy-agent="${Number(chat.id)}">复制回答</button></div></div>
+      `).join('');
+      const loading = pending ? `
+        <div class="agent-message user"><div class="agent-bubble">${pending.skillName ? `<span class="agent-active-skill">@${html(pending.skillName)}</span>\n` : ''}${html(pending.question)}</div></div>
+        <div class="agent-message assistant"><div class="agent-bubble"><span class="agent-thinking">正在思考 <span class="agent-dot"></span><span class="agent-dot"></span><span class="agent-dot"></span></span></div></div>
+      ` : '';
+      return done + loading;
+    }
+    function skillListHtml() {
+      if (!agentSkills.length) return '<div class="muted">暂无保存的 skill。</div>';
+      return agentSkills.map(skill => `
+        <div class="skill-row">
+          <button type="button" class="ghost skill-tag" title="${html(skill.name)}" data-select-skill="${Number(skill.id)}">${html(skill.name)}</button>
+          <div class="skill-row-actions"><button type="button" data-edit-skill="${Number(skill.id)}">编辑</button><button class="danger" type="button" data-delete-skill="${Number(skill.id)}">删除</button></div>
+        </div>
+      `).join('');
+    }
+    function agentBlock(r) {
+      const skill = selectedAgentSkill();
+      const session = activeAgentSession(r.id);
+      const pending = pendingAgentByVideo.has(Number(r.id));
+      return `<div class="agent-shell">
+        <div class="agent-topbar">
+          <div class="agent-session-meta"><span class="pill">Session ${html(session?.id || '-')}</span><span>上下文记忆仅限当前素材页和当前对话</span></div>
+        </div>
+        <div id="agentChatList" class="agent-chat-list">${agentMessagesHtml(r.id)}</div>
+        <div class="agent-composer">
+          <div class="agent-composer-top">
+            <div class="skill-picker">
+              <button id="agentSkillButton" class="agent-chip ${skill ? 'active' : ''}" type="button">${skill ? `@${html(skill.name)}` : '@Skill'}</button>
+              <div id="agentSkillMenu" class="skill-menu" ${agentSkillMenuOpen ? '' : 'hidden'}>
+                <div class="skill-list" id="agentSkillList">${skillListHtml()}</div>
+                <div class="skill-editor">
+                  <input id="agentSkillName" placeholder="Skill 名称" />
+                  <textarea id="agentSkillPrompt" placeholder="保存或编辑一个提示词"></textarea>
+                  <div class="inline-actions">
+                    <button id="agentSaveSkillButton" class="primary" type="button">保存 skill</button>
+                    <button id="agentNewSkillButton" type="button">新建</button>
+                    <button type="button" data-clear-skill>不使用 skill</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <select id="agentModelSelect" class="agent-model">${agentModelOptions()}</select>
+            <button id="agentNewSessionButton" type="button">新对话</button>
+          </div>
+          <textarea id="agentQuestion" class="agent-question" placeholder="基于当前素材提问"></textarea>
+          <div class="agent-input-actions">
+            <span class="muted">Enter 发送，Shift+Enter 换行。当前对话会记住历史上下文。</span>
+            <div class="agent-send-row"><button id="agentSendButton" class="primary" type="button" ${pending ? 'disabled' : ''}>${pending ? '生成中' : '发送'}</button></div>
+          </div>
+        </div>
+      </div>`;
+    }
     function blockShell(id, title, actions, body) {
       const collapsed = collapsedBlocks.has(id);
       const toggleText = collapsed ? '展开' : '收起';
@@ -2072,7 +2291,6 @@
       document.querySelectorAll('[data-compact]').forEach(x => x.classList.toggle('active', Number(x.dataset.compact) === selectedId));
       const comments = (r.top_comments || []).map(c => `<div class="comment"><div class="comment-likes">${fmt(c.like_count)} 赞</div><div>${html(c.content)}</div></div>`).join('');
       const actionsBlock = `<div class="text-box">视频 ID：${fmt(r.id)}\n来源：${html(r.source_url)}\n视频：${html(r.media_path)}\n音频：${html(r.audio_path)}</div>`;
-      const analysisBlock = analysisBlocks(r);
       const commentsBlock = `<div class="comment-list">${comments || '<div class="muted">暂无评论</div>'}</div>`;
       const transcriptBlock = `<div id="transcriptText" class="text-box transcript transcript-${transcriptViewMode}">${transcriptContent(r.transcript_text)}</div>`;
       els.detailMain.innerHTML = `
@@ -2080,16 +2298,17 @@
           <div class="panel-head"><div><h2 class="hero-title">${html(r.title)}</h2><div class="task-meta"><span>${html(platformLabel(r.platform))}</span><span>${html(r.creator_name)}</span><span>${html(r.category)}</span><span>${html(r.published_at)}</span></div></div><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
           <div class="metric-row"><div class="metric"><span>素材分</span><b>${fmt(r.score)}</b></div><div class="metric"><span>点赞</span><b>${fmt(r.like_count)}</b></div><div class="metric"><span>评论</span><b>${fmt(r.comment_count)}</b></div><div class="metric"><span>收藏</span><b>${fmt(r.favorite_count)}</b></div><div class="metric"><span>转发</span><b>${fmt(r.repost_count)}</b></div></div>
         </section>
-        ${blockShell('actions', '操作', `<div class="inline-actions"><button type="button" data-transcribe="${Number(r.id)}">转录</button><button class="primary" type="button" data-analyze="${Number(r.id)}">AI 分析</button><button class="warn" type="button" data-nospeech="${Number(r.id)}">标记无口播</button><button class="danger" type="button" data-delete="${Number(r.id)}">删除</button></div>`, actionsBlock)}
+        ${blockShell('actions', '操作', `<div class="inline-actions"><button type="button" data-transcribe="${Number(r.id)}">转录</button><button class="warn" type="button" data-nospeech="${Number(r.id)}">标记无口播</button><button class="danger" type="button" data-delete="${Number(r.id)}">删除</button></div>`, actionsBlock)}
         ${blockShell('transcript', '转录文本', `${transcriptModeButtons()}<button type="button" data-copy="transcript">复制文本</button>`, transcriptBlock)}
         ${blockShell('comments', '高赞评论', `<span class="pill">${fmt((r.top_comments || []).length)} 条</span>`, commentsBlock)}
-        ${blockShell('analysis', 'AI 爆款分析', '<button type="button" data-copy="analysis">复制分析</button>', analysisBlock)}`;
+        ${blockShell('agent', 'AI 问答', '', agentBlock(r))}`;
       els.currentTaskBadge.textContent = statusText(r);
       els.currentTaskPanel.textContent = `平台：${platformLabel(r.platform)}\n账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
       bindCardButtons(els.detailMain);
       for (const btn of els.detailMain.querySelectorAll('[data-copy]')) btn.onclick = () => copyCurrent(btn.dataset.copy);
       for (const btn of els.detailMain.querySelectorAll('[data-transcript-mode]')) btn.onclick = () => { transcriptViewMode = btn.dataset.transcriptMode || 'raw'; renderDetail(); };
       for (const btn of els.detailMain.querySelectorAll('[data-toggle-block]')) btn.onclick = () => toggleBlock(btn.dataset.toggleBlock);
+      bindAgentControls(r.id);
     }
     function renderFailures() {
       const failureHtml = failedTasks.length ? failedTasks.map(task => `
@@ -2143,6 +2362,7 @@
       if (row) selectedDetailCreator = creatorName(row);
       switchPage('detail');
       renderAll();
+      loadAgentChats(id).then(() => renderDetail()).catch(error => setStatus(String(error.message || error), 'bad'));
     }
     function bindCardButtons(root) {
       for (const btn of root.querySelectorAll('[data-open]')) btn.onclick = e => { e.stopPropagation(); openDetail(Number(btn.dataset.open)); };
@@ -2150,6 +2370,147 @@
       for (const btn of root.querySelectorAll('[data-analyze]')) btn.onclick = e => { e.stopPropagation(); analyzeVideo(Number(btn.dataset.analyze)); };
       for (const btn of root.querySelectorAll('[data-delete]')) btn.onclick = e => { e.stopPropagation(); deleteVideoAction(Number(btn.dataset.delete)); };
       for (const btn of root.querySelectorAll('[data-nospeech]')) btn.onclick = e => { e.stopPropagation(); updateVideoStatus(Number(btn.dataset.nospeech), 'no_speech'); };
+    }
+    function bindAgentControls(videoId) {
+      for (const id of ['agentSkillButton','agentSkillMenu','agentSkillList','agentSkillName','agentSkillPrompt','agentSaveSkillButton','agentNewSkillButton','agentModelSelect','agentQuestion','agentSendButton','agentChatList','agentSelectedSkillBadge','agentNewSessionButton']) {
+        els[id] = document.getElementById(id);
+      }
+      if (!els.agentSendButton) return;
+      els.agentSkillButton.onclick = () => { agentSkillMenuOpen = !agentSkillMenuOpen; renderDetail(); };
+      els.agentModelSelect.onchange = () => { selectedAgentModelId = els.agentModelSelect.value || 'doubao-2-pro'; };
+      els.agentSendButton.onclick = () => sendAgentQuestion(videoId);
+      els.agentNewSessionButton.onclick = () => createNewAgentSession(videoId);
+      els.agentQuestion.onkeydown = event => {
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+        event.preventDefault();
+        sendAgentQuestion(videoId);
+      };
+      els.agentNewSkillButton.onclick = () => {
+        editingAgentSkillId = null;
+        els.agentSkillName.value = '';
+        els.agentSkillPrompt.value = '';
+        els.agentSkillName.focus();
+      };
+      els.agentSaveSkillButton.onclick = saveAgentSkillFromEditor;
+      for (const btn of els.detailMain.querySelectorAll('[data-select-skill]')) btn.onclick = () => {
+        selectedAgentSkillId = Number(btn.dataset.selectSkill);
+        agentSkillMenuOpen = false;
+        renderDetail();
+      };
+      for (const btn of els.detailMain.querySelectorAll('[data-edit-skill]')) btn.onclick = () => {
+        const skill = agentSkills.find(item => Number(item.id) === Number(btn.dataset.editSkill));
+        if (!skill) return;
+        editingAgentSkillId = Number(skill.id);
+        els.agentSkillName.value = skill.name || '';
+        els.agentSkillPrompt.value = skill.prompt || '';
+        els.agentSkillPrompt.focus();
+      };
+      for (const btn of els.detailMain.querySelectorAll('[data-clear-skill]')) btn.onclick = () => {
+        selectedAgentSkillId = null;
+        agentSkillMenuOpen = false;
+        renderDetail();
+      };
+      for (const btn of els.detailMain.querySelectorAll('[data-delete-skill]')) btn.onclick = () => deleteAgentSkill(Number(btn.dataset.deleteSkill));
+      for (const btn of els.detailMain.querySelectorAll('[data-copy-agent]')) btn.onclick = () => {
+        const chat = agentChatRows(videoId).find(item => Number(item.id) === Number(btn.dataset.copyAgent));
+        if (!chat) return;
+        navigator.clipboard?.writeText(chat.answer || '');
+        setStatus('回答已复制。', 'ok');
+      };
+      for (const btn of els.detailMain.querySelectorAll('[data-save-question-skill]')) btn.onclick = () => {
+        const chat = agentChatRows(videoId).find(item => Number(item.id) === Number(btn.dataset.saveQuestionSkill));
+        if (!chat) return;
+        editingAgentSkillId = null;
+        agentSkillMenuOpen = true;
+        renderDetail();
+        els.agentSkillName.value = safe(chat.question).slice(0, 28) || '未命名 skill';
+        els.agentSkillPrompt.value = `请按照这个问题代表的分析方式回答用户：\n${safe(chat.question)}`;
+        els.agentSkillPrompt.focus();
+      };
+    }
+    async function saveAgentSkillFromEditor() {
+      const name = (els.agentSkillName?.value || '').trim();
+      const prompt = (els.agentSkillPrompt?.value || '').trim();
+      if (!name || !prompt) { setStatus('请填写 skill 名称和提示词。', 'bad'); return; }
+      try {
+        const data = await requestJson('/api/agent/skills', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id: editingAgentSkillId, name, prompt}),
+        });
+        agentSkills = data.skills || [];
+        editingAgentSkillId = null;
+        agentSkillMenuOpen = true;
+        setStatus('Skill 已保存，需要点击选择后才会应用。', 'ok');
+        renderDetail();
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+      }
+    }
+    async function deleteAgentSkill(skillId) {
+      if (!skillId) return;
+      try {
+        const data = await requestJson('/api/agent/skills/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id: skillId}),
+        });
+        agentSkills = data.skills || [];
+        if (Number(selectedAgentSkillId) === Number(skillId)) selectedAgentSkillId = null;
+        if (Number(editingAgentSkillId) === Number(skillId)) editingAgentSkillId = null;
+        setStatus('Skill 已删除。', 'ok');
+        renderDetail();
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+      }
+    }
+    async function createNewAgentSession(videoId) {
+      if (!videoId || pendingAgentByVideo.has(Number(videoId))) return;
+      try {
+        const data = await requestJson('/api/agent/session/new', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({video_id: videoId}),
+        });
+        agentSessionByVideo.set(Number(videoId), data.session);
+        agentSessionsByVideo.set(Number(videoId), data.sessions || []);
+        agentChatsByVideo.set(Number(videoId), []);
+        pendingAgentByVideo.delete(Number(videoId));
+        setStatus('已开启新对话，skill 保持不变。', 'ok');
+        renderDetail();
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+      }
+    }
+    async function sendAgentQuestion(videoId) {
+      const question = (els.agentQuestion?.value || '').trim();
+      if (!question) { setStatus('请先输入问题。', 'bad'); return; }
+      const key = Number(videoId);
+      if (pendingAgentByVideo.has(key)) return;
+      const skill = selectedAgentSkill();
+      const session = activeAgentSession(videoId);
+      pendingAgentByVideo.set(key, {question, skillName: skill?.name || ''});
+      els.agentQuestion.value = '';
+      renderDetail();
+      try {
+        const data = await requestJson('/api/agent/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({video_id: videoId, session_id: session?.id || null, skill_id: selectedAgentSkillId, model_id: selectedAgentModelId, question}),
+        });
+        const chats = agentChatRows(videoId);
+        const chat = data.chat || {};
+        if (!chat.skill_name && data.skill?.name) chat.skill_name = data.skill.name;
+        if (data.session) agentSessionByVideo.set(key, data.session);
+        agentChatsByVideo.set(Number(videoId), [...chats, chat]);
+        setStatus(`AI 回答完成：${data.model?.label || '模型'}`, 'ok');
+        renderDetail();
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+      } finally {
+        pendingAgentByVideo.delete(key);
+        renderDetail();
+      }
     }
     async function postTask(type, videoId, options = {}) {
       const payload = {video_id: videoId};
@@ -2396,7 +2757,7 @@
         '',
         `- 导出时间：${new Date().toLocaleString('zh-CN')}`,
         `- 当前状态筛选：${els.detailStatus?.selectedOptions?.[0]?.textContent || '全部状态'}`,
-        `- 当前排序：${els.detailSort?.selectedOptions?.[0]?.textContent || '点赞从高到低'}`,
+        `- 当前排序：${detailSortLabels().join('，')}`,
         `- 内容数量：${data.length}`,
         '',
       ];
@@ -2459,7 +2820,7 @@
         if (shouldAutoTranscribe || shouldAutoAnalyze) els.download.checked = true;
         const taskId = makeTaskId('harvest');
         startProgressPolling(taskId);
-        const payload = { task_id: taskId, target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), download: els.download.checked };
+        const payload = { task_id: taskId, target: els.target.value.trim(), category: selectedHarvestCategory(), page_size: Number(els.pageSize.value || 10), max_pages: Number(els.maxPages.value || 1), top_comments: Number(els.topComments.value || 10), min_likes: Number(els.minLikes.value || 0), top_videos: Number(els.topVideos.value || 0), published_after: els.publishedAfter.value || null, download: els.download.checked };
         try {
           const data = await requestJson('/api/harvest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
           const fetched = data.result.fetched_video_count ?? data.result.video_count;
@@ -2491,7 +2852,7 @@
       });
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
       for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
-      for (const id of ['detailKeyword','detailStatus','detailSort']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
+      for (const id of ['detailKeyword','detailStatus','detailSortLikes','detailSortPublished']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
       els.updateCreatorButton.onclick = updateSelectedCreator;
       els.batchTranscribeButton.onclick = () => runBatch('transcribe');
       els.batchAnalyzeButton.onclick = () => runBatch('analyze');

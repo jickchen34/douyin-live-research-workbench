@@ -96,6 +96,43 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(video_id) REFERENCES videos(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS agent_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            prompt TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER NOT NULL,
+            title TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(video_id) REFERENCES videos(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER NOT NULL,
+            session_id INTEGER,
+            skill_id INTEGER,
+            model_id TEXT NOT NULL,
+            model_label TEXT,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(video_id) REFERENCES videos(id) ON DELETE CASCADE,
+            FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY(skill_id) REFERENCES agent_skills(id) ON DELETE SET NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_one_active
+        ON agent_sessions(video_id)
+        WHERE is_active = 1;
+
         CREATE TABLE IF NOT EXISTS failed_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_type TEXT NOT NULL,
@@ -118,6 +155,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     ensure_column(conn, "creators", "sec_user_id", "TEXT")
+    ensure_column(conn, "agent_chats", "session_id", "INTEGER")
     conn.commit()
 
 
@@ -411,6 +449,228 @@ def save_analysis(conn: sqlite3.Connection, video_id: int, provider: str, model:
         (video_id, provider, model, text, json.dumps(parsed, ensure_ascii=False) if parsed else None, now_iso()),
     )
     conn.commit()
+
+
+def list_agent_skills(conn: sqlite3.Connection) -> list[dict]:
+    init_db(conn)
+    rows = conn.execute(
+        """
+        SELECT id, name, prompt, created_at, updated_at
+        FROM agent_skills
+        ORDER BY updated_at DESC, id DESC
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_agent_skill(conn: sqlite3.Connection, skill_id: int) -> dict | None:
+    init_db(conn)
+    row = conn.execute(
+        """
+        SELECT id, name, prompt, created_at, updated_at
+        FROM agent_skills
+        WHERE id = ?
+        """,
+        (skill_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def save_agent_skill(conn: sqlite3.Connection, name: str, prompt: str, skill_id: int | None = None) -> dict:
+    init_db(conn)
+    clean_name = name.strip()
+    clean_prompt = prompt.strip()
+    if not clean_name:
+        raise ValueError("请填写 skill 名称")
+    if not clean_prompt:
+        raise ValueError("请填写 skill 提示词")
+    ts = now_iso()
+    if skill_id:
+        row = conn.execute("SELECT id FROM agent_skills WHERE id = ?", (skill_id,)).fetchone()
+        if not row:
+            raise ValueError(f"未找到 skill ID：{skill_id}")
+        conn.execute(
+            """
+            UPDATE agent_skills
+            SET name = ?, prompt = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (clean_name, clean_prompt, ts, skill_id),
+        )
+        saved_id = skill_id
+    else:
+        conn.execute(
+            """
+            INSERT INTO agent_skills(name, prompt, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                prompt = excluded.prompt,
+                updated_at = excluded.updated_at
+            """,
+            (clean_name, clean_prompt, ts, ts),
+        )
+        saved_id = int(conn.execute("SELECT id FROM agent_skills WHERE name = ?", (clean_name,)).fetchone()["id"])
+    conn.commit()
+    return get_agent_skill(conn, saved_id) or {}
+
+
+def delete_agent_skill(conn: sqlite3.Connection, skill_id: int) -> None:
+    init_db(conn)
+    conn.execute("DELETE FROM agent_skills WHERE id = ?", (skill_id,))
+    conn.commit()
+
+
+def get_or_create_active_agent_session(conn: sqlite3.Connection, video_id: int) -> dict:
+    init_db(conn)
+    row = conn.execute("SELECT id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not row:
+        raise ValueError(f"未找到视频 ID：{video_id}")
+    session = conn.execute(
+        """
+        SELECT id, video_id, title, is_active, created_at, updated_at
+        FROM agent_sessions
+        WHERE video_id = ? AND is_active = 1
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (video_id,),
+    ).fetchone()
+    if session:
+        return dict(session)
+    try:
+        return create_agent_session(conn, video_id)
+    except sqlite3.IntegrityError:
+        session = conn.execute(
+            """
+            SELECT id, video_id, title, is_active, created_at, updated_at
+            FROM agent_sessions
+            WHERE video_id = ? AND is_active = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (video_id,),
+        ).fetchone()
+        if session:
+            return dict(session)
+        raise
+
+
+def create_agent_session(conn: sqlite3.Connection, video_id: int, title: str | None = None) -> dict:
+    init_db(conn)
+    row = conn.execute("SELECT id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not row:
+        raise ValueError(f"未找到视频 ID：{video_id}")
+    ts = now_iso()
+    conn.execute("UPDATE agent_sessions SET is_active = 0, updated_at = ? WHERE video_id = ?", (ts, video_id))
+    conn.execute(
+        """
+        INSERT INTO agent_sessions(video_id, title, is_active, created_at, updated_at)
+        VALUES (?, ?, 1, ?, ?)
+        """,
+        (video_id, title or "新对话", ts, ts),
+    )
+    conn.commit()
+    session_id = int(conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
+    return dict(conn.execute(
+        """
+        SELECT id, video_id, title, is_active, created_at, updated_at
+        FROM agent_sessions
+        WHERE id = ?
+        """,
+        (session_id,),
+    ).fetchone())
+
+
+def list_agent_sessions(conn: sqlite3.Connection, video_id: int) -> list[dict]:
+    init_db(conn)
+    rows = conn.execute(
+        """
+        SELECT id, video_id, title, is_active, created_at, updated_at
+        FROM agent_sessions
+        WHERE video_id = ?
+        ORDER BY is_active DESC, updated_at DESC, id DESC
+        """,
+        (video_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def session_memory_messages(conn: sqlite3.Connection, session_id: int, limit: int = 12) -> list[dict[str, str]]:
+    init_db(conn)
+    rows = conn.execute(
+        """
+        SELECT question, answer
+        FROM agent_chats
+        WHERE session_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (session_id, limit),
+    ).fetchall()
+    messages: list[dict[str, str]] = []
+    for row in reversed(rows):
+        messages.append({"role": "user", "content": row["question"]})
+        messages.append({"role": "assistant", "content": row["answer"]})
+    return messages
+
+
+def save_agent_chat(
+    conn: sqlite3.Connection,
+    video_id: int,
+    session_id: int,
+    skill_id: int | None,
+    model_id: str,
+    model_label: str,
+    question: str,
+    answer: str,
+) -> dict:
+    init_db(conn)
+    row = conn.execute("SELECT id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not row:
+        raise ValueError(f"未找到视频 ID：{video_id}")
+    session = conn.execute("SELECT id FROM agent_sessions WHERE id = ? AND video_id = ?", (session_id, video_id)).fetchone()
+    if not session:
+        raise ValueError(f"未找到会话 ID：{session_id}")
+    ts = now_iso()
+    conn.execute(
+        """
+        INSERT INTO agent_chats(video_id, session_id, skill_id, model_id, model_label, question, answer, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (video_id, session_id, skill_id, model_id, model_label, question, answer, ts),
+    )
+    conn.execute("UPDATE agent_sessions SET updated_at = ? WHERE id = ?", (ts, session_id))
+    conn.commit()
+    chat_id = int(conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
+    return {
+        "id": chat_id,
+        "video_id": video_id,
+        "session_id": session_id,
+        "skill_id": skill_id,
+        "model_id": model_id,
+        "model_label": model_label,
+        "question": question,
+        "answer": answer,
+        "created_at": ts,
+    }
+
+
+def list_agent_chats(conn: sqlite3.Connection, video_id: int, session_id: int | None = None) -> list[dict]:
+    init_db(conn)
+    session = get_or_create_active_agent_session(conn, video_id) if session_id is None else {"id": session_id}
+    rows = conn.execute(
+        """
+        SELECT
+            c.id, c.video_id, c.session_id, c.skill_id, c.model_id, c.model_label, c.question, c.answer, c.created_at,
+            s.name AS skill_name
+        FROM agent_chats c
+        LEFT JOIN agent_skills s ON s.id = c.skill_id
+        WHERE c.video_id = ? AND c.session_id = ?
+        ORDER BY c.id ASC
+        """,
+        (video_id, session["id"]),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def record_failed_task(conn: sqlite3.Connection, task_type: str, error: str, video_id: int | None = None, payload: dict | None = None) -> int:

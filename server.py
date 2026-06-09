@@ -23,19 +23,29 @@ from app_logging import log_event, setup_logging, tail_logs
 from db import (
     clear_failed_task,
     connect,
+    create_agent_session,
     delete_video,
+    delete_agent_skill,
     export_library,
     ignore_failed_task,
     init_db,
+    get_agent_skill,
+    get_or_create_active_agent_session,
     list_failed_tasks,
+    list_agent_chats,
+    list_agent_sessions,
+    list_agent_skills,
     now_iso,
     record_failed_task,
     safe_unlink,
+    save_agent_chat,
+    save_agent_skill,
     save_analysis,
     save_video_comments,
     save_harvest_result,
     save_wechat_channels_result,
     save_transcript,
+    session_memory_messages,
     upsert_creator,
     upsert_video,
     update_video_paths,
@@ -43,7 +53,7 @@ from db import (
 )
 from doubao_asr import extract_audio_for_asr, extract_transcript_text, recognize_audio_file, save_asr_result
 from douyin_creator_harvest import harvest_target
-from volcengine import analyze_with_doubao, load_local_env, parse_json_object
+from volcengine import analyze_with_doubao, available_chat_models, chat_with_volcengine, load_local_env, parse_json_object
 from wechat_channels_harvest import DEFAULT_BASE_URL as WECHAT_CHANNELS_DEFAULT_BASE_URL
 from wechat_channels_harvest import check_status as check_wechat_channels_status
 from wechat_channels_harvest import fetch_top_comments, harvest_wechat_channels, list_download_tasks, search_contacts
@@ -561,6 +571,17 @@ def parse_iso_timestamp(value: object) -> float:
         return 0.0
 
 
+def optional_iso_datetime(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        raise ValueError("发布时间筛选格式无效，请使用日期或 ISO 时间")
+    return parsed.isoformat()
+
+
 def task_local_media_path(task: dict) -> Path | None:
     meta = task.get("meta") or {}
     opts = meta.get("opts") or task.get("opts") or {}
@@ -1015,6 +1036,106 @@ def analyze_video(video_id: int) -> dict:
     }
 
 
+def agent_video_context(conn, video_id: int) -> dict:
+    row = conn.execute(
+        """
+        SELECT
+            v.id, v.platform, v.source_url, v.title, v.description, v.published_at,
+            v.like_count, v.comment_count, v.repost_count, v.favorite_count,
+            c.name AS creator_name, c.category,
+            t.transcript_text
+        FROM videos v
+        LEFT JOIN creators c ON c.id = v.creator_id
+        LEFT JOIN transcripts t ON t.video_id = v.id
+        WHERE v.id = ?
+        """,
+        (video_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError(f"未找到视频 ID：{video_id}")
+    comments = conn.execute(
+        """
+        SELECT content, like_count
+        FROM comments
+        WHERE video_id = ?
+        ORDER BY COALESCE(like_count, 0) DESC, id ASC
+        LIMIT 20
+        """,
+        (video_id,),
+    ).fetchall()
+    item = dict(row)
+    item["top_comments"] = [dict(comment) for comment in comments]
+    return item
+
+
+def format_agent_context(item: dict) -> str:
+    comments = item.get("top_comments") or []
+    comments_text = "\n".join(f"- {comment.get('like_count') or 0} 赞：{comment.get('content') or ''}" for comment in comments) or "暂无评论"
+    transcript = str(item.get("transcript_text") or "暂无转录文本")
+    return f"""
+当前视频素材上下文：
+平台：{item.get("platform") or "未知"}
+账号：{item.get("creator_name") or "未知"}
+分类：{item.get("category") or "未分类"}
+标题：{item.get("title") or "无"}
+简介：{item.get("description") or "无"}
+发布时间：{item.get("published_at") or "未知"}
+点赞：{item.get("like_count") or 0}
+评论：{item.get("comment_count") or 0}
+收藏：{item.get("favorite_count") or 0}
+转发：{item.get("repost_count") or 0}
+来源：{item.get("source_url") or "无"}
+
+转录文本：
+{transcript[:12000]}
+
+高赞评论：
+{comments_text[:4000]}
+""".strip()
+
+
+def run_agent_chat(video_id: int, question: str, skill_id: int | None = None, model_id: str | None = None, session_id: int | None = None) -> dict:
+    conn = connect()
+    init_db(conn)
+    clean_question = question.strip()
+    if not clean_question:
+        raise ValueError("请填写问题")
+    session = get_or_create_active_agent_session(conn, video_id) if session_id is None else {"id": session_id}
+    skill = get_agent_skill(conn, skill_id) if skill_id else None
+    context_text = format_agent_context(agent_video_context(conn, video_id))
+    system_prompt = (skill or {}).get("prompt") or "你是一个专业短视频素材研究 Agent。请基于用户提供的视频上下文回答，不要编造上下文之外的事实；如果信息不足，要明确说明。"
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": context_text},
+        {"role": "assistant", "content": "我会把这段视频素材上下文作为本会话的固定背景，并在后续回答中沿用。"},
+        *session_memory_messages(conn, int(session["id"])),
+        {"role": "user", "content": clean_question},
+    ]
+    model_result = chat_with_volcengine(messages, model_id=model_id)
+    chat = save_agent_chat(
+        conn,
+        video_id=video_id,
+        session_id=int(session["id"]),
+        skill_id=skill["id"] if skill else None,
+        model_id=model_result["model_id"],
+        model_label=model_result["model_label"],
+        question=clean_question,
+        answer=model_result["answer"],
+    )
+    chat["skill_name"] = skill.get("name") if skill else None
+    return {
+        "chat": chat,
+        "answer": model_result["answer"],
+        "model": {
+            "id": model_result["model_id"],
+            "label": model_result["model_label"],
+            "endpoint_id": model_result["endpoint_id"],
+        },
+        "skill": skill,
+        "session": session,
+    }
+
+
 def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
     log_event(LOGGER, "transcribe.start", video_id=video_id)
     conn = connect()
@@ -1103,6 +1224,32 @@ class AppHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/jobs":
             json_response(self, 200, {"ok": True, "jobs": list_jobs()})
+            return
+        if path == "/api/agent/models":
+            json_response(self, 200, {"ok": True, "models": available_chat_models()})
+            return
+        if path == "/api/agent/skills":
+            conn = connect()
+            init_db(conn)
+            json_response(self, 200, {"ok": True, "skills": list_agent_skills(conn)})
+            return
+        if path == "/api/agent/chats":
+            try:
+                params = query_params(self.path)
+                video_id = bounded_int(params.get("video_id"), 0, 1, 10_000_000)
+                session_raw = params.get("session_id")
+                session_id = bounded_int(session_raw, 0, 1, 10_000_000) if session_raw else None
+                conn = connect()
+                init_db(conn)
+                session = get_or_create_active_agent_session(conn, video_id) if session_id is None else {"id": session_id, "video_id": video_id}
+                json_response(self, 200, {
+                    "ok": True,
+                    "session": session,
+                    "sessions": list_agent_sessions(conn, video_id),
+                    "chats": list_agent_chats(conn, video_id, int(session["id"])),
+                })
+            except Exception as e:
+                json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
             return
         if path == "/api/wechat-channels/status":
             params = query_params(self.path)
@@ -1197,6 +1344,72 @@ class AppHandler(SimpleHTTPRequestHandler):
                 json_response(self, 200, {"ok": True, "job": job, "task_id": job["job_id"]})
             except Exception as e:
                 json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            return
+        if path == "/api/agent/skills":
+            try:
+                payload = read_json(self)
+                conn = connect()
+                init_db(conn)
+                skill_id = payload.get("id")
+                saved = save_agent_skill(
+                    conn,
+                    name=str(payload.get("name") or ""),
+                    prompt=str(payload.get("prompt") or ""),
+                    skill_id=bounded_int(skill_id, 0, 1, 10_000_000) if skill_id else None,
+                )
+                json_response(self, 200, {"ok": True, "skill": saved, "skills": list_agent_skills(conn)})
+            except Exception as e:
+                json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            return
+        if path == "/api/agent/skills/delete":
+            try:
+                payload = read_json(self)
+                skill_id = bounded_int(payload.get("id"), 0, 1, 10_000_000)
+                conn = connect()
+                init_db(conn)
+                delete_agent_skill(conn, skill_id)
+                json_response(self, 200, {"ok": True, "skills": list_agent_skills(conn)})
+            except Exception as e:
+                json_response(self, 500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            return
+        if path == "/api/agent/chat":
+            try:
+                payload = read_json(self)
+                video_id = bounded_int(payload.get("video_id"), 0, 1, 10_000_000)
+                skill_raw = payload.get("skill_id")
+                skill_id = bounded_int(skill_raw, 0, 1, 10_000_000) if skill_raw else None
+                session_raw = payload.get("session_id")
+                session_id = bounded_int(session_raw, 0, 1, 10_000_000) if session_raw else None
+                result = run_agent_chat(
+                    video_id=video_id,
+                    question=str(payload.get("question") or ""),
+                    skill_id=skill_id,
+                    model_id=str(payload.get("model_id") or ""),
+                    session_id=session_id,
+                )
+                json_response(self, 200, {"ok": True, **result})
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "agent.chat_failure", error=error, payload=payload if "payload" in locals() else {})
+                json_response(self, 500, {"ok": False, "error": error})
+            return
+        if path == "/api/agent/session/new":
+            try:
+                payload = read_json(self)
+                video_id = bounded_int(payload.get("video_id"), 0, 1, 10_000_000)
+                conn = connect()
+                init_db(conn)
+                session = create_agent_session(conn, video_id)
+                json_response(self, 200, {
+                    "ok": True,
+                    "session": session,
+                    "sessions": list_agent_sessions(conn, video_id),
+                    "chats": [],
+                })
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "agent.session_new_failure", error=error, payload=payload if "payload" in locals() else {})
+                json_response(self, 500, {"ok": False, "error": error})
             return
         if path == "/api/failed-tasks/ignore":
             try:
@@ -1472,6 +1685,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             min_likes = bounded_int(payload.get("min_likes"), 0, 0, 1_000_000_000)
             top_videos_raw = bounded_int(payload.get("top_videos"), 0, 0, 10_000)
             top_videos = top_videos_raw or None
+            published_after = optional_iso_datetime(payload.get("published_after"))
             download = bool(payload.get("download", True))
             task_id = str(payload.get("task_id") or uuid.uuid4())
             harvest_key = json.dumps({
@@ -1481,6 +1695,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 "top_comments": top_comments,
                 "min_likes": min_likes,
                 "top_videos": top_videos,
+                "published_after": published_after,
                 "download": download,
             }, ensure_ascii=False, sort_keys=True)
             with ACTIVE_HARVEST_LOCK:
@@ -1499,6 +1714,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 top_comments=top_comments,
                 min_likes=min_likes,
                 top_videos=top_videos,
+                published_after=published_after,
                 download=download,
             )
 
@@ -1511,6 +1727,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     download=download,
                     min_likes=min_likes,
                     top_videos=top_videos,
+                    published_after=published_after,
                     progress_callback=lambda **updates: set_task_progress(task_id, **updates),
                 )
             )

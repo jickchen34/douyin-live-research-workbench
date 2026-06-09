@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
@@ -30,6 +31,37 @@ SEC_UID_IN_TEXT_RE = re.compile(r"MS4w[\w.-]+")
 URL_RE = re.compile(r"https?://")
 
 
+def get_douyin_proxy_config() -> dict[str, str | None]:
+    load_local_env()
+    proxy = os.environ.get("DOUYIN_PROXY", "").strip()
+    http_proxy = os.environ.get("DOUYIN_HTTP_PROXY", "").strip() or proxy
+    https_proxy = os.environ.get("DOUYIN_HTTPS_PROXY", "").strip() or proxy
+    if not http_proxy and not https_proxy:
+        return {"http://": None, "https://": None}
+    return {
+        "http://": http_proxy or None,
+        "https://": https_proxy or http_proxy or None,
+    }
+
+
+def apply_douyin_proxy_config() -> dict[str, str | None]:
+    proxies = get_douyin_proxy_config()
+    douyin_config = wc_module.config["TokenManager"]["douyin"]
+    douyin_config.setdefault("proxies", {})
+    douyin_config["proxies"]["http"] = proxies["http://"]
+    douyin_config["proxies"]["https"] = proxies["https://"]
+    TokenManager.proxies = proxies
+    return proxies
+
+
+def gen_ttwid_with_proxy() -> str:
+    transport = httpx.HTTPTransport(retries=5)
+    with httpx.Client(transport=transport, proxies=TokenManager.proxies, timeout=10) as client:
+        response = client.post(TokenManager.ttwid_conf["url"], content=TokenManager.ttwid_conf["data"])
+        response.raise_for_status()
+        return str(httpx.Cookies(response.cookies).get("ttwid"))
+
+
 def load_local_env() -> None:
     env_path = ROOT / ".env"
     if not env_path.exists():
@@ -47,10 +79,11 @@ def load_local_env() -> None:
 
 def require_cookie() -> str:
     load_local_env()
+    apply_douyin_proxy_config()
     cookie = os.environ.get("DOUYIN_COOKIE", "").strip()
     if not cookie:
         ms_token = TokenManager.gen_real_msToken()
-        ttwid = TokenManager.gen_ttwid()
+        ttwid = gen_ttwid_with_proxy()
         verify_fp = VerifyFpManager.gen_verify_fp()
         cookie = f"msToken={ms_token}; ttwid={ttwid}; s_v_web_id={verify_fp}; IsDouyinActive=true;"
     wc_module.config["TokenManager"]["douyin"]["headers"]["Cookie"] = cookie
@@ -68,6 +101,18 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def parse_published_after_ts(value: str | None) -> int | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return None
 
 
 def get_aweme_id(item: dict) -> str:
@@ -302,6 +347,7 @@ async def resolve_sec_user_id(crawler: DouyinWebCrawler, target: str) -> tuple[s
 
 
 async def search_user_candidates(keyword: str, limit: int = 10) -> list[dict]:
+    apply_douyin_proxy_config()
     headers = await DouyinWebCrawler().get_douyin_headers()
     params = {
         "device_platform": "webapp",
@@ -494,6 +540,7 @@ async def harvest_target(
     download: bool = False,
     min_likes: int = 0,
     top_videos: int | None = None,
+    published_after: str | None = None,
     progress_callback: Callable[..., None] | None = None,
 ) -> dict:
     def progress(**updates: object) -> None:
@@ -515,11 +562,16 @@ async def harvest_target(
         log_event(LOGGER, "harvest.profile_failure", sec_user_id=sec_user_id, error=profile_error)
     progress(stage="posts", label="拉取作品列表", done=0, total=0, success=0, fail=0, status="running")
     all_videos = await fetch_all_posts(crawler, sec_user_id, page_size, max_pages, progress_callback=progress)
-    videos = [video for video in all_videos if safe_int(video.get("digg_count")) >= min_likes]
+    published_after_ts = parse_published_after_ts(published_after)
+    videos = [
+        video for video in all_videos
+        if safe_int(video.get("digg_count")) >= min_likes
+        and (published_after_ts is None or safe_int(video.get("create_time")) > published_after_ts)
+    ]
     videos.sort(key=lambda video: safe_int(video.get("digg_count")), reverse=True)
     if top_videos:
         videos = videos[:top_videos]
-    log_event(LOGGER, "harvest.filter", sec_user_id=sec_user_id, fetched=len(all_videos), selected=len(videos), min_likes=min_likes, top_videos=top_videos)
+    log_event(LOGGER, "harvest.filter", sec_user_id=sec_user_id, fetched=len(all_videos), selected=len(videos), min_likes=min_likes, top_videos=top_videos, published_after=published_after)
     if not creator.get("nickname"):
         creator = creator_from_videos(videos or all_videos, sec_user_id)
 
@@ -573,6 +625,7 @@ async def harvest_target(
         "filters": {
             "min_likes": min_likes,
             "top_videos": top_videos,
+            "published_after": published_after,
         },
         "videos": videos,
     }
@@ -592,6 +645,7 @@ async def main() -> None:
     parser.add_argument("--top-comments", type=int, default=10)
     parser.add_argument("--min-likes", type=int, default=0)
     parser.add_argument("--top-videos", type=int, default=0, help="0 表示不过滤 Top N")
+    parser.add_argument("--published-after", default="", help="只保留该时间之后发布的作品，例如 2026-06-01")
     parser.add_argument("--download", action="store_true", help="下载视频文件；默认只保存下载 URL 和数据")
     args = parser.parse_args()
 
@@ -603,6 +657,7 @@ async def main() -> None:
         download=args.download,
         min_likes=max(0, args.min_likes),
         top_videos=args.top_videos or None,
+        published_after=args.published_after or None,
     )
     print(json.dumps({"output": result["output"], "video_count": result["video_count"], "sec_user_id": result["sec_user_id"]}, ensure_ascii=False, indent=2))
 

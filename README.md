@@ -4,7 +4,7 @@
 >
 > 本仓库公开仅用于个人备份和代码管理，不授予任何第三方使用、复制、分发或商用授权。仓库中不包含密钥、Cookie、数据库、视频、音频、日志或采集结果。
 
-这个项目用于把“对标账号视频 -> 作品数据和高赞评论 -> 视频转写 -> AI 爆款分析 -> 本地素材库”跑成一个本地工作台。
+这个项目用于把“对标账号视频 -> 作品数据和高赞评论 -> 视频转写 -> AI 问答 Agent -> 本地素材库”跑成一个本地工作台。
 
 ## 当前完整度
 
@@ -12,15 +12,16 @@
 
 - 输入抖音主页链接，程序化采集账号作品、统计数据、高赞评论和媒体文件。
 - 支持微信视频号 A1 方案：本机微信 PC 打开目标视频号页面，通过本地 `wx_channels_download` 服务检测连接后采集作者作品。
-- 支持按账号分类、最低点赞数、点赞 Top N、高赞评论数量等参数采集；页数和每页数量默认使用 100/100 以尽量拉完整作品列表。
+- 支持按账号分类、最低点赞数、点赞 Top N、发布时间之后、高赞评论数量等参数采集；页数和每页数量默认使用 100/100 以尽量拉完整作品列表。
 - 采集页支持选择已有分类，也支持自定义分类。
 - 可分别勾选“转录”“分析”，采集完成后自动对本次采集视频先转录，再按需分析。
 - 使用 `ffmpeg` 抽取音频，并调用火山豆包语音 ASR 转录视频口播。
-- 调用火山方舟豆包模型，使用 `VOLCENGINE_ENDPOINT_ID` 作为模型/接入点 ID 做爆款分析。
+- 调用火山方舟模型：豆包 2.0 Pro 使用 `VOLCENGINE_ENDPOINT_ID`，DeepSeek 4.0 Pro 使用内置接入点 `ep-20260609144848-8qmcw`。
 - 前端支持工作台、数据查看、信息页面、失败任务和运行日志。
 - 支持批量转录、批量分析、失败手动重试、标记无口播、单条/批量删除。
-- 信息页面可查看 AI 分析、高赞评论、转录文本；直播可聊点按“主题 / 观点”展示。
-- 将视频、评论、转写、分析结果写入本地 SQLite 数据库。
+- 信息页面可查看高赞评论、转录文本和 Claude-like AI 问答区；问答区支持模型切换、Markdown 渲染、局部生成状态、Enter 发送、Shift+Enter 换行。
+- AI 问答支持保存和编辑 skill；每个视频页的对话 session 独立记忆，点击“新对话”只清空当前素材页的上下文，不影响已保存 skill。
+- 将视频、评论、转写、分析结果、Agent skill、Agent session 和问答记忆写入本地 SQLite 数据库。
 
 更完整的从零安装说明见 [SETUP.md](SETUP.md)。
 
@@ -46,6 +47,7 @@ douyin_live_research/
   server.py                   # 本地前端/API 服务
   volcengine.py               # 火山方舟调用封装
   web/index.html              # 本地前端控制台
+  web/vendor/                 # 本地前端第三方库，当前用于 Markdown 渲染和 HTML 清洗
   scripts/check_setup.py      # 本地环境检查脚本
   SETUP.md                    # 从零安装和配置说明
   .env.example                # 配置模板，不含真实密钥
@@ -160,6 +162,25 @@ BATCH_TRANSCRIBE_CONCURRENCY=2
 BATCH_ANALYZE_CONCURRENCY=2
 ```
 
+### SQLite 和 AI Agent 数据
+
+SQLite 数据库默认写入 `data/library.sqlite3`，不需要额外配置，也不要提交到 Git。服务启动时会自动创建和迁移以下 Agent 表：
+
+- `agent_skills`：保存用户自定义 skill 名称和提示词。
+- `agent_sessions`：按视频隔离的 AI 问答 session；同一视频只保留一个 active session。
+- `agent_chats`：保存每个 session 的用户问题、模型回答、模型 ID 和 skill 关联。
+
+AI 问答会把当前视频素材上下文和同一 session 最近的问答历史一起提交给火山方舟模型。点击“新对话”会为当前视频创建新的 active session，旧问答保留在 SQLite 中，已保存 skill 不会被删除或改动。
+
+### AI 问答模型
+
+信息页 AI 问答区可切换模型：
+
+- `豆包 2.0 Pro`：使用 `.env` 中的 `VOLCENGINE_ENDPOINT_ID`。
+- `DeepSeek 4.0 Pro`：使用内置火山方舟接入点 `ep-20260609144848-8qmcw`。
+
+如果需要更换豆包模型，只改 `.env` 中的 `VOLCENGINE_ENDPOINT_ID`。DeepSeek 接入点当前写在代码中，用于确保前端模型切换开箱可用。
+
 ## 安装和启动
 
 ```bash
@@ -183,14 +204,16 @@ http://127.0.0.1:8791/
 
 1. 在工作台输入抖音主页链接或 `sec_user_id`。
 2. 选择已有分类，或选择“自定义分类”后输入新分类。
-3. 设置点赞 Top N、最低点赞、高赞评论数等参数。
+3. 设置点赞 Top N、最低点赞、发布时间之后、高赞评论数等参数。
 4. 如需采集完成后自动处理，勾选“转录”或“分析”。这些选项会自动保证“下载视频”被勾选。
 5. 点击“开始采集”。
 6. 在批量处理区按账号、分类、状态筛选候选视频。
 7. 执行批量转录、批量分析、标记无口播或删除。
 8. 在数据查看页筛选素材。
-9. 在信息页面查看 AI 分析、高赞评论、转录文本和任务详情。
-10. 无口播视频可标记为“无口播”，后续批量任务会跳过。
+9. 在信息页面查看高赞评论、转录文本和任务详情。
+10. 在 AI 问答区选择模型和 skill，基于当前素材提问；Enter 发送，Shift+Enter 换行。
+11. 需要隔离上下文时点击“新对话”，当前视频会开启新的 session，但已保存 skill 不会受影响。
+12. 无口播视频可标记为“无口播”，后续批量任务会跳过。
 
 ### 微信视频号流程
 
@@ -229,6 +252,14 @@ python3 scripts/check_setup.py
 ```bash
 pip install -r external/Douyin_TikTok_Download_API/requirements.txt
 ```
+
+### AI 问答的上下文保存在哪里？
+
+保存在本地 SQLite 数据库 `data/library.sqlite3`。每个视频有独立的 `agent_sessions`，每条问答写入 `agent_chats`。点击“新对话”只切换当前视频的 active session，不会删除旧 session，也不会影响 `agent_skills`。
+
+### Markdown 回答为什么要带本地 vendor 文件？
+
+AI 回答使用 `web/vendor/marked.min.js` 渲染 Markdown，并用 `web/vendor/purify.min.js` 清洗 HTML，避免依赖 CDN，也避免直接渲染模型输出带来的 XSS 风险。
 
 ### 为什么转录失败？
 

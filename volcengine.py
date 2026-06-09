@@ -6,6 +6,19 @@ import urllib.request
 from pathlib import Path
 
 DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+DEFAULT_DEEPSEEK_ENDPOINT_ID = "ep-20260609144848-8qmcw"
+
+
+MODEL_ENDPOINTS = {
+    "doubao-2-pro": {
+        "label": "豆包 2.0 Pro",
+        "env": "VOLCENGINE_ENDPOINT_ID",
+    },
+    "deepseek-4-pro": {
+        "label": "DeepSeek 4.0 Pro",
+        "endpoint_id": DEFAULT_DEEPSEEK_ENDPOINT_ID,
+    },
+}
 
 
 def load_local_env() -> None:
@@ -96,6 +109,83 @@ def analyze_with_doubao(title: str, description: str, transcript: str, comments:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as e:
         raise RuntimeError(f"火山方舟返回格式异常：{json.dumps(data, ensure_ascii=False)[:1000]}") from e
+
+
+def available_chat_models() -> list[dict[str, str]]:
+    load_local_env()
+    result = []
+    for model_id, config in MODEL_ENDPOINTS.items():
+        endpoint_id = config.get("endpoint_id") or os.environ.get(str(config.get("env") or ""))
+        result.append({
+            "id": model_id,
+            "label": str(config["label"]),
+            "endpoint_id": str(endpoint_id or ""),
+        })
+    return result
+
+
+def resolve_chat_model(model_id: str | None) -> dict[str, str]:
+    load_local_env()
+    selected = model_id if model_id in MODEL_ENDPOINTS else "doubao-2-pro"
+    config = MODEL_ENDPOINTS[selected]
+    endpoint_id = config.get("endpoint_id") or os.environ.get(str(config.get("env") or ""))
+    if not endpoint_id:
+        raise RuntimeError(f"模型 {config['label']} 缺少火山方舟接入点")
+    return {
+        "id": selected,
+        "label": str(config["label"]),
+        "endpoint_id": str(endpoint_id),
+    }
+
+
+def chat_with_volcengine(messages: list[dict[str, str]], model_id: str | None = None, temperature: float = 0.35) -> dict[str, str]:
+    load_local_env()
+    api_key = os.environ.get("VOLCENGINE_API_KEY")
+    base_url = os.environ.get("VOLCENGINE_BASE_URL", DEFAULT_BASE_URL)
+    if not api_key:
+        raise RuntimeError("缺少环境变量 VOLCENGINE_API_KEY")
+    model = resolve_chat_model(model_id)
+    payload = {
+        "model": model["endpoint_id"],
+        "messages": messages,
+        "temperature": temperature,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        base_url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        import certifi
+
+        context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        context = ssl.create_default_context()
+
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=context) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"火山方舟调用失败：HTTP {e.code} {detail}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"火山方舟网络失败：{e}") from e
+
+    try:
+        answer = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"火山方舟返回格式异常：{json.dumps(data, ensure_ascii=False)[:1000]}") from e
+    return {
+        "answer": str(answer),
+        "model_id": model["id"],
+        "model_label": model["label"],
+        "endpoint_id": model["endpoint_id"],
+    }
 
 
 def parse_json_object(text: str) -> dict | None:
