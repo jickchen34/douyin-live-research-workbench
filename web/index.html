@@ -2411,11 +2411,15 @@
         renderDetail();
       };
       for (const btn of els.detailMain.querySelectorAll('[data-delete-skill]')) btn.onclick = () => deleteAgentSkill(Number(btn.dataset.deleteSkill));
-      for (const btn of els.detailMain.querySelectorAll('[data-copy-agent]')) btn.onclick = () => {
+      for (const btn of els.detailMain.querySelectorAll('[data-copy-agent]')) btn.onclick = async () => {
         const chat = agentChatRows(videoId).find(item => Number(item.id) === Number(btn.dataset.copyAgent));
         if (!chat) return;
-        navigator.clipboard?.writeText(chat.answer || '');
-        setStatus('回答已复制。', 'ok');
+        try {
+          await copyTextToClipboard(chat.answer || '');
+          setStatus('回答已复制。', 'ok');
+        } catch (error) {
+          setStatus(String(error.message || error), 'bad');
+        }
       };
       for (const btn of els.detailMain.querySelectorAll('[data-save-question-skill]')) btn.onclick = () => {
         const chat = agentChatRows(videoId).find(item => Number(item.id) === Number(btn.dataset.saveQuestionSkill));
@@ -2738,10 +2742,39 @@
       await ignoreFailedTask(taskId);
     }
     function taskLabel(type) { return {harvest: '账号采集', wechat_harvest: '视频号采集', transcribe: '视频转录', analyze: 'AI 分析'}[type] || type; }
-    function copyCurrent(kind) {
+    async function copyTextToClipboard(text) {
+      const value = String(text || '');
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(value);
+          return;
+        } catch (_) {
+          // 继续使用兼容方案。
+        }
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (!ok) throw new Error('浏览器拒绝复制，请手动选择文本复制。');
+    }
+    async function copyCurrent(kind) {
       const r = rows.find(x => x.id === selectedId); if (!r) return;
       const text = kind === 'analysis' ? (r.analysis_text || '') : (r.transcript_text || '');
-      navigator.clipboard?.writeText(text); setStatus('内容已复制。', 'ok');
+      try {
+        await copyTextToClipboard(text);
+        setStatus('内容已复制。', 'ok');
+      } catch (error) {
+        setStatus(String(error.message || error), 'bad');
+      }
     }
     function mdText(value) {
       return safe(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim() || '暂无';
