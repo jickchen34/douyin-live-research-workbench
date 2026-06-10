@@ -137,6 +137,7 @@ DOUBAO_ASR_AUDIO_URL_TEMPLATE=https://your-public-host.example.com/audio/{filena
 DOUBAO_ASR_AUTH_MODE=legacy
 DOUBAO_ASR_APP_KEY=your_app_key
 DOUBAO_ASR_ACCESS_KEY=your_access_key
+DOUBAO_ASR_SECRET_KEY=your_secret_key
 ```
 
 批量任务并发默认较保守，推荐先保持默认：

@@ -87,7 +87,7 @@ def main() -> int:
 
     auth_mode = env.get("DOUBAO_ASR_AUTH_MODE", "api_key").strip().lower()
     if auth_mode == "legacy":
-        required = ("DOUBAO_ASR_APP_KEY", "DOUBAO_ASR_ACCESS_KEY")
+        required = ("DOUBAO_ASR_APP_KEY", "DOUBAO_ASR_ACCESS_KEY", "DOUBAO_ASR_SECRET_KEY")
     else:
         required = ("DOUBAO_ASR_API_KEY",)
     for key in required:

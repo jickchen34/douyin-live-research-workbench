@@ -75,16 +75,20 @@ def require_asr_config() -> dict:
     api_key = os.environ.get("DOUBAO_ASR_API_KEY", "").strip()
     app_key = os.environ.get("DOUBAO_ASR_APP_KEY", "").strip()
     access_key = os.environ.get("DOUBAO_ASR_ACCESS_KEY", "").strip()
+    secret_key = os.environ.get("DOUBAO_ASR_SECRET_KEY", "").strip()
     endpoint = os.environ.get("DOUBAO_ASR_ENDPOINT", DEFAULT_ASR_ENDPOINT).strip()
     submit_endpoint = os.environ.get("DOUBAO_ASR_SUBMIT_ENDPOINT", DEFAULT_ASR_SUBMIT_ENDPOINT).strip()
     query_endpoint = os.environ.get("DOUBAO_ASR_QUERY_ENDPOINT", DEFAULT_ASR_QUERY_ENDPOINT).strip()
     resource_id = os.environ.get("DOUBAO_ASR_RESOURCE_ID", DEFAULT_ASR_RESOURCE_ID).strip()
     if auth_mode == "legacy":
-        if not app_key or not access_key:
-            raise RuntimeError("旧版豆包语音 ASR 认证缺少 DOUBAO_ASR_APP_KEY 或 DOUBAO_ASR_ACCESS_KEY")
+        if not app_key or not access_key or not secret_key:
+            raise RuntimeError(
+                "旧版豆包语音 ASR 认证缺少 DOUBAO_ASR_APP_KEY、DOUBAO_ASR_ACCESS_KEY 或 DOUBAO_ASR_SECRET_KEY"
+            )
         auth_headers = {
             "X-Api-App-Key": app_key,
             "X-Api-Access-Key": access_key,
+            "X-Api-Secret-Key": secret_key,
         }
         uid = app_key
     else:

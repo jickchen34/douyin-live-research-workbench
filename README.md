@@ -151,6 +151,7 @@ DOUBAO_ASR_PUBLIC_BASE_URL=https://your-public-host.example.com/audio
 DOUBAO_ASR_AUTH_MODE=legacy
 DOUBAO_ASR_APP_KEY=your_app_key
 DOUBAO_ASR_ACCESS_KEY=your_access_key
+DOUBAO_ASR_SECRET_KEY=your_secret_key
 ```
 
 不要把真实 key 写进代码或提交到 Git。
