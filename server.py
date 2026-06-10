@@ -168,8 +168,10 @@ def filter_batch_video_ids(task_type: str, video_ids: list[int]) -> list[int]:
             FROM videos v
             LEFT JOIN transcripts t ON t.video_id = v.id
             WHERE v.id IN ({placeholders})
-              AND v.media_path IS NOT NULL
-              AND v.media_path != ''
+              AND (
+                (v.audio_path IS NOT NULL AND v.audio_path != '')
+                OR (v.media_path IS NOT NULL AND v.media_path != '')
+              )
               AND t.id IS NULL
               AND COALESCE(v.status, '') NOT IN ('no_speech', 'transcribe_running')
             """,
@@ -979,6 +981,20 @@ def is_no_speech_asr_error(value: object) -> bool:
     return "normal silence audio" in text or "no valid speech" in text or "未检测到有效口播" in text
 
 
+def is_no_audio_media_error(value: object) -> bool:
+    text = str(value or "").lower()
+    markers = (
+        "output file does not contain any stream",
+        "does not contain any stream",
+        "stream map",
+        "matches no streams",
+        "audio: none",
+        "no audio",
+        "无音轨",
+    )
+    return any(marker in text for marker in markers)
+
+
 def export_current_library() -> list[dict]:
     conn = connect()
     init_db(conn)
@@ -1142,7 +1158,7 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
     init_db(conn)
     row = conn.execute(
         """
-        SELECT id, media_path, creator_id, metadata_json
+        SELECT id, media_path, audio_path, creator_id, metadata_json
         FROM videos
         WHERE id = ?
         """,
@@ -1150,8 +1166,8 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
     ).fetchone()
     if not row:
         raise ValueError(f"未找到视频 ID：{video_id}")
-    if not row["media_path"]:
-        raise ValueError(f"视频 ID {video_id} 没有本地视频文件")
+    if not row["audio_path"] and not row["media_path"]:
+        raise ValueError(f"视频 ID {video_id} 没有本地音频或视频文件")
     try:
         metadata = json.loads(row["metadata_json"] or "{}")
     except Exception:
@@ -1163,8 +1179,30 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
             (author_sec_user_id, now_iso(), row["creator_id"]),
         )
         conn.commit()
-    audio_path = extract_audio_for_asr(row["media_path"], video_id)
-    update_video_paths(conn, video_id, audio_path=str(audio_path), status="audio_ready")
+    audio_path = None
+    existing_audio_path = Path(row["audio_path"]) if row["audio_path"] else None
+    if existing_audio_path and existing_audio_path.exists():
+        audio_path = existing_audio_path
+        update_video_paths(conn, video_id, audio_path=str(audio_path), status="audio_ready")
+        log_event(LOGGER, "transcribe.use_existing_audio", video_id=video_id, audio_path=str(audio_path))
+    elif row["media_path"]:
+        try:
+            audio_path = extract_audio_for_asr(row["media_path"], video_id)
+        except Exception as e:
+            error_text = f"{type(e).__name__}: {e}"
+            if is_no_audio_media_error(error_text):
+                update_video_paths(conn, video_id, status="no_speech", error="视频文件没有音轨，无法转录")
+                clear_failed_task(conn, "transcribe", video_id)
+                export_library_safely(conn)
+                log_event(LOGGER, "transcribe.no_audio_track", video_id=video_id, media_path=row["media_path"], error=error_text)
+                return {"video_id": video_id, "media_path": row["media_path"], "no_speech": True, "transcript_length": 0, "error": "视频文件没有音轨，无法转录"}
+            raise
+        update_video_paths(conn, video_id, audio_path=str(audio_path), status="audio_ready")
+        log_event(LOGGER, "transcribe.extracted_audio", video_id=video_id, media_path=row["media_path"], audio_path=str(audio_path))
+    elif existing_audio_path:
+        raise FileNotFoundError(f"音频文件不存在：{existing_audio_path}")
+    if not audio_path:
+        raise ValueError(f"视频 ID {video_id} 没有可转录的音频或视频文件")
     try:
         asr_result = recognize_audio_file(audio_path)
     except Exception as e:

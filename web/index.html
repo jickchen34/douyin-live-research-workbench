@@ -1469,6 +1469,13 @@
       if (platform === 'douyin') return '抖音';
       return platform || '未知平台';
     }
+    function hasLocalMedia(r) {
+      return Boolean(r && (r.audio_path || r.media_path));
+    }
+    function canTranscribeRow(r) {
+      const s = r.status || '';
+      return hasLocalMedia(r) && !r.transcript_text && s !== 'no_speech' && s !== 'transcribe_running';
+    }
     function statusText(r) {
       const s = r.status || '';
       if (s === 'transcribe_running') return '转录中';
@@ -1479,7 +1486,7 @@
       if (s.includes('failed')) return '失败';
       if (r.analysis_text) return '已分析';
       if (r.transcript_text) return '已转录';
-      if (r.media_path) return '已下载';
+      if (hasLocalMedia(r)) return '已下载';
       return s || '已采集';
     }
     function statusClass(r) {
@@ -1928,8 +1935,8 @@
       if (value === 'failed') return s.includes('failed');
       if (value === 'transcribed') return Boolean(r.transcript_text) && !r.analysis_text && s !== 'no_speech';
       if (value === 'analyzed') return Boolean(r.analysis_text);
-      if (value === 'downloaded') return Boolean(r.media_path) && !r.transcript_text && !s.includes('failed') && s !== 'no_speech';
-      if (value === 'harvested') return !r.media_path && !r.transcript_text && !s.includes('failed');
+      if (value === 'downloaded') return hasLocalMedia(r) && !r.transcript_text && !s.includes('failed') && s !== 'no_speech';
+      if (value === 'harvested') return !hasLocalMedia(r) && !r.transcript_text && !s.includes('failed');
       return s === value;
     }
     function applyFilters(source, prefix) {
@@ -1973,7 +1980,7 @@
         secUserId,
         profileUrl,
         total: scoped.length,
-        downloaded: scoped.filter(r => r.media_path).length,
+        downloaded: scoped.filter(hasLocalMedia).length,
         transcribed: scoped.filter(r => r.transcript_text).length,
         analyzed: scoped.filter(r => r.analysis_text).length,
         noSpeech: scoped.filter(r => r.status === 'no_speech').length,
@@ -2048,7 +2055,7 @@
     }
     function renderSummary() {
       const creators = new Set(rows.map(r => r.creator_name).filter(Boolean));
-      const downloaded = rows.filter(r => r.media_path).length;
+      const downloaded = rows.filter(hasLocalMedia).length;
       const transcribed = rows.filter(r => r.transcript_text).length;
       const analyzed = rows.filter(r => r.analysis_text).length;
       const noSpeech = rows.filter(r => r.status === 'no_speech').length;
@@ -2063,7 +2070,7 @@
     }
     function renderStatusStrip() {
       const stats = [
-        ['总素材', rows.length, ''], ['可转录', rows.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running').length, 'cyan'],
+        ['总素材', rows.length, ''], ['可转录', rows.filter(canTranscribeRow).length, 'cyan'],
         ['可分析', rows.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running').length, 'cyan'], ['已分析', rows.filter(r => r.analysis_text).length, 'green'],
         ['无口播', rows.filter(r => r.status === 'no_speech').length, 'amber'], ['失败任务', failedTasks.length, 'red']
       ];
@@ -2071,7 +2078,7 @@
     }
     function renderBatch() {
       const data = batchCandidates();
-      const canTranscribe = data.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running');
+      const canTranscribe = data.filter(canTranscribeRow);
       const canAnalyze = data.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
       els.batchScope.textContent = `候选 ${fmt(data.length)} 条`;
       els.batchBreakdown.textContent = `转录 ${fmt(canTranscribe.length)} / 分析 ${fmt(canAnalyze.length)}`;
@@ -2303,7 +2310,7 @@
         ${blockShell('comments', '高赞评论', `<span class="pill">${fmt((r.top_comments || []).length)} 条</span>`, commentsBlock)}
         ${blockShell('agent', 'AI 问答', '', agentBlock(r))}`;
       els.currentTaskBadge.textContent = statusText(r);
-      els.currentTaskPanel.textContent = `平台：${platformLabel(r.platform)}\n账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}`;
+      els.currentTaskPanel.textContent = `平台：${platformLabel(r.platform)}\n账号：${safe(r.creator_name)}\n分类：${safe(r.category)}\n状态：${statusText(r)}\n点赞：${fmt(r.like_count)}\n评论：${fmt(r.comment_count)}\n本地视频：${safe(r.media_path)}\n本地音频：${safe(r.audio_path)}`;
       bindCardButtons(els.detailMain);
       for (const btn of els.detailMain.querySelectorAll('[data-copy]')) btn.onclick = () => copyCurrent(btn.dataset.copy);
       for (const btn of els.detailMain.querySelectorAll('[data-transcript-mode]')) btn.onclick = () => { transcriptViewMode = btn.dataset.transcriptMode || 'raw'; renderDetail(); };
@@ -2545,7 +2552,7 @@
     async function runBatch(type, explicitRows = null) {
       if (busy) return;
       const source = explicitRows || batchCandidates();
-      const candidates = source.filter(r => type === 'transcribe' ? r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running' : r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
+      const candidates = source.filter(r => type === 'transcribe' ? canTranscribeRow(r) : r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
       if (!candidates.length) { setStatus(type === 'transcribe' ? '没有需要转录的候选视频。' : '没有需要分析的候选视频。'); return; }
       const actionLabel = type === 'transcribe' ? '转录' : '分析';
       const deleteMediaAfterTranscribe = type === 'transcribe' && Boolean(els.deleteMediaAfterBatchTranscribe?.checked);
@@ -2576,7 +2583,7 @@
       await loadAll();
       let scoped = rows.filter(r => idSet.has(Number(r.id)));
       if (shouldTranscribe) {
-        const transcribeTargets = scoped.filter(r => r.media_path && !r.transcript_text && r.status !== 'no_speech' && r.status !== 'transcribe_running');
+        const transcribeTargets = scoped.filter(canTranscribeRow);
         if (transcribeTargets.length) {
           setStatus(`采集完成：已提交 ${transcribeTargets.length} 条自动转录任务。`);
           updateProgress('采集后自动转录', 0, transcribeTargets.length, 0, 0);

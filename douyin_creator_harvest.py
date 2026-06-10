@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +26,7 @@ from crawlers.base_crawler import BaseCrawler
 
 RAW_DIR = ROOT / "data" / "douyin_raw"
 MEDIA_DIR = ROOT / "data" / "douyin_media"
+ASR_AUDIO_DIR = ROOT / "data" / "asr_audio"
 LOGGER = logging.getLogger("douyin_live_research.harvest")
 
 SEC_UID_RE = re.compile(r"^MS4w[\w.-]+$")
@@ -207,6 +210,81 @@ def extract_video_url_candidates(video: dict) -> list[dict]:
     return deduped
 
 
+def iter_url_list(value: Any, preferred_keys: tuple[str, ...] = ()) -> list[tuple[str, str]]:
+    urls: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        used = set()
+        for key in preferred_keys:
+            item = value.get(key)
+            if isinstance(item, str) and item:
+                urls.append((key, item))
+                used.add(key)
+        for key, item in value.items():
+            if key in used:
+                continue
+            if isinstance(item, str) and item:
+                urls.append((str(key), item))
+            elif isinstance(item, list):
+                for index, url in enumerate(item):
+                    if isinstance(url, str) and url:
+                        urls.append((f"{key}_{index}", url))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            if isinstance(item, str) and item:
+                urls.append((str(index), item))
+    return urls
+
+
+def extract_audio_url_candidates(video: dict) -> list[dict]:
+    candidates: list[dict] = []
+    sequence = 0
+    audio_items = video.get("bit_rate_audio") or video.get("bitRateAudio") or []
+    url_priority = {"backup_url": 0, "main_url": 1, "fallback_url": 2}
+    for item in audio_items:
+        if not isinstance(item, dict):
+            continue
+        audio_meta = item.get("audio_meta") or item.get("audioMeta") or item
+        if not isinstance(audio_meta, dict):
+            continue
+        data_size = safe_int(audio_meta.get("size") or audio_meta.get("data_size") or audio_meta.get("dataSize"), 0)
+        bit_rate = safe_int(audio_meta.get("bitrate") or audio_meta.get("bit_rate") or audio_meta.get("bitRate"), 0)
+        format_name = audio_meta.get("format") or audio_meta.get("codec") or audio_meta.get("format_name")
+        url_list = audio_meta.get("url_list") or audio_meta.get("urlList") or {}
+        for url_key, url in iter_url_list(url_list, ("backup_url", "main_url", "fallback_url")):
+            candidates.append({
+                "url": url,
+                "data_size": data_size,
+                "bit_rate": bit_rate,
+                "format": format_name,
+                "source": "bit_rate_audio",
+                "url_key": url_key,
+                "sequence": sequence,
+                "priority": url_priority.get(url_key, 10),
+            })
+            sequence += 1
+
+    def sort_key(item: dict) -> tuple[int, int, int, int, int]:
+        data_size = safe_int(item.get("data_size"), 0)
+        bit_rate = safe_int(item.get("bit_rate"), 0)
+        return (
+            safe_int(item.get("priority"), 10),
+            0 if data_size > 0 else 1,
+            data_size if data_size > 0 else 10**18,
+            bit_rate if bit_rate > 0 else 10**18,
+            safe_int(item.get("sequence"), 0),
+        )
+
+    deduped: list[dict] = []
+    seen = set()
+    for item in sorted(candidates, key=sort_key):
+        url = item["url"]
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(item)
+    return deduped
+
+
 def extract_video_urls(video: dict) -> list[str]:
     return [item["url"] for item in extract_video_url_candidates(video)]
 
@@ -216,7 +294,9 @@ def normalize_video(item: dict) -> dict:
     author = item.get("author") or {}
     video = item.get("video") or {}
     url_candidates = extract_video_url_candidates(video)
+    audio_url_candidates = extract_audio_url_candidates(video)
     url_list = [candidate["url"] for candidate in url_candidates]
+    audio_url_list = [candidate["url"] for candidate in audio_url_candidates]
     return {
         "aweme_id": get_aweme_id(item),
         "desc": safe_text(item.get("desc") or item.get("caption")),
@@ -232,6 +312,11 @@ def normalize_video(item: dict) -> dict:
         "download_candidates": [
             {k: v for k, v in candidate.items() if k != "url"}
             for candidate in url_candidates
+        ],
+        "audio_download_urls": audio_url_list,
+        "audio_download_candidates": [
+            {k: v for k, v in candidate.items() if k != "url"}
+            for candidate in audio_url_candidates
         ],
         "raw": item,
     }
@@ -525,6 +610,101 @@ async def download_video_file(headers: dict, video: dict) -> str | None:
         raise RuntimeError(last_error or "无可用下载地址")
 
 
+def has_media_stream(path: Path, stream_selector: str) -> bool:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        log_event(LOGGER, "harvest.ffprobe_missing", path=str(path))
+        return True
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                stream_selector,
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception as e:
+        log_event(LOGGER, "harvest.ffprobe_failure", path=str(path), stream=stream_selector, error=f"{type(e).__name__}: {e}")
+        return False
+    return result.returncode == 0 and bool((result.stdout or "").strip())
+
+
+async def download_audio_file(headers: dict, video: dict) -> str | None:
+    urls = video.get("audio_download_urls") or []
+    if not urls:
+        return None
+    aweme_id = video.get("aweme_id") or "unknown"
+    ASR_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    out = ASR_AUDIO_DIR / f"aweme_{aweme_id}.m4a"
+    if out.exists() and out.stat().st_size > 0:
+        if has_media_stream(out, "a:0"):
+            return str(out)
+        out.unlink(missing_ok=True)
+    async with httpx.AsyncClient(headers=headers["headers"], proxies=headers.get("proxies"), timeout=60, follow_redirects=True) as client:
+        last_error = None
+        candidates = video.get("audio_download_candidates") or []
+        for index, url in enumerate(urls):
+            tmp = out.with_suffix(f"{out.suffix}.tmp")
+            try:
+                candidate = candidates[index] if index < len(candidates) and isinstance(candidates[index], dict) else {}
+                log_event(
+                    LOGGER,
+                    "harvest.audio_download_try",
+                    aweme_id=aweme_id,
+                    candidate=index + 1,
+                    data_size=candidate.get("data_size"),
+                    bit_rate=candidate.get("bit_rate"),
+                    source=candidate.get("source"),
+                    url_key=candidate.get("url_key"),
+                )
+                response = await client.get(url)
+                if response.status_code < 400 and response.content:
+                    tmp.write_bytes(response.content)
+                    if has_media_stream(tmp, "a:0"):
+                        tmp.replace(out)
+                        log_event(LOGGER, "harvest.audio_download_success", aweme_id=aweme_id, bytes=len(response.content), candidate=index + 1)
+                        return str(out)
+                    tmp.unlink(missing_ok=True)
+                    last_error = "下载文件不包含音频流"
+                    log_event(LOGGER, "harvest.audio_download_invalid", aweme_id=aweme_id, candidate=index + 1, error=last_error)
+                    continue
+                last_error = f"HTTP {response.status_code}"
+            except Exception as e:
+                tmp.unlink(missing_ok=True)
+                last_error = f"{type(e).__name__}: {e}"
+        raise RuntimeError(last_error or "无可用音频下载地址")
+
+
+async def download_audio_or_video_file(headers: dict, video: dict) -> None:
+    audio_error = None
+    try:
+        audio_path = await download_audio_file(headers, video)
+        if audio_path:
+            video["audio_path"] = audio_path
+            return
+    except Exception as e:
+        audio_error = f"{type(e).__name__}: {e}"
+        video["audio_download_error"] = audio_error
+        log_event(LOGGER, "harvest.audio_download_failure", aweme_id=video.get("aweme_id"), error=audio_error)
+
+    media_path = await download_video_file(headers, video)
+    if media_path:
+        video["media_path"] = media_path
+        if audio_error:
+            video["download_note"] = "独立音频下载失败，已回退下载最低码率视频"
+
+
 async def fetch_top_comments(crawler: DouyinWebCrawler, aweme_id: str, top_n: int) -> list[dict]:
     payload = await crawler.fetch_video_comments(aweme_id, 0, max(20, top_n * 3))
     comments = [normalize_comment(c) for c in extract_comments(payload)]
@@ -585,7 +765,7 @@ async def harvest_target(
         item_failed = False
         if download:
             try:
-                video["media_path"] = await download_video_file(headers, video)
+                await download_audio_or_video_file(headers, video)
             except Exception as e:
                 video["download_error"] = f"{type(e).__name__}: {e}"
                 item_failed = True
