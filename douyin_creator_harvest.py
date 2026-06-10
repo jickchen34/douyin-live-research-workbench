@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +30,14 @@ LOGGER = logging.getLogger("douyin_live_research.harvest")
 SEC_UID_RE = re.compile(r"^MS4w[\w.-]+$")
 SEC_UID_IN_TEXT_RE = re.compile(r"MS4w[\w.-]+")
 URL_RE = re.compile(r"https?://")
+
+
+def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)) or default)
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
 
 
 def get_douyin_proxy_config() -> dict[str, str | None]:
@@ -267,10 +273,10 @@ def extract_audio_url_candidates(video: dict) -> list[dict]:
         data_size = safe_int(item.get("data_size"), 0)
         bit_rate = safe_int(item.get("bit_rate"), 0)
         return (
-            safe_int(item.get("priority"), 10),
             0 if data_size > 0 else 1,
             data_size if data_size > 0 else 10**18,
             bit_rate if bit_rate > 0 else 10**18,
+            safe_int(item.get("priority"), 10),
             safe_int(item.get("sequence"), 0),
         )
 
@@ -610,36 +616,6 @@ async def download_video_file(headers: dict, video: dict) -> str | None:
         raise RuntimeError(last_error or "无可用下载地址")
 
 
-def has_media_stream(path: Path, stream_selector: str) -> bool:
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        log_event(LOGGER, "harvest.ffprobe_missing", path=str(path))
-        return True
-    try:
-        result = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                stream_selector,
-                "-show_entries",
-                "stream=codec_type",
-                "-of",
-                "csv=p=0",
-                str(path),
-            ],
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-    except Exception as e:
-        log_event(LOGGER, "harvest.ffprobe_failure", path=str(path), stream=stream_selector, error=f"{type(e).__name__}: {e}")
-        return False
-    return result.returncode == 0 and bool((result.stdout or "").strip())
-
-
 async def download_audio_file(headers: dict, video: dict) -> str | None:
     urls = video.get("audio_download_urls") or []
     if not urls:
@@ -648,9 +624,7 @@ async def download_audio_file(headers: dict, video: dict) -> str | None:
     ASR_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     out = ASR_AUDIO_DIR / f"aweme_{aweme_id}.m4a"
     if out.exists() and out.stat().st_size > 0:
-        if has_media_stream(out, "a:0"):
-            return str(out)
-        out.unlink(missing_ok=True)
+        return str(out)
     async with httpx.AsyncClient(headers=headers["headers"], proxies=headers.get("proxies"), timeout=60, follow_redirects=True) as client:
         last_error = None
         candidates = video.get("audio_download_candidates") or []
@@ -671,14 +645,9 @@ async def download_audio_file(headers: dict, video: dict) -> str | None:
                 response = await client.get(url)
                 if response.status_code < 400 and response.content:
                     tmp.write_bytes(response.content)
-                    if has_media_stream(tmp, "a:0"):
-                        tmp.replace(out)
-                        log_event(LOGGER, "harvest.audio_download_success", aweme_id=aweme_id, bytes=len(response.content), candidate=index + 1)
-                        return str(out)
-                    tmp.unlink(missing_ok=True)
-                    last_error = "下载文件不包含音频流"
-                    log_event(LOGGER, "harvest.audio_download_invalid", aweme_id=aweme_id, candidate=index + 1, error=last_error)
-                    continue
+                    tmp.replace(out)
+                    log_event(LOGGER, "harvest.audio_download_success", aweme_id=aweme_id, bytes=len(response.content), candidate=index + 1)
+                    return str(out)
                 last_error = f"HTTP {response.status_code}"
             except Exception as e:
                 tmp.unlink(missing_ok=True)
@@ -759,37 +728,53 @@ async def harvest_target(
     progress(stage="videos", label="处理作品", done=0, total=len(videos), success=0, fail=0, status="running")
     video_success = 0
     video_fail = 0
-    for index, video in enumerate(videos, start=1):
-        aweme_id = video["aweme_id"]
-        progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index - 1, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
-        item_failed = False
-        if download:
+    video_concurrency = env_int("HARVEST_VIDEO_CONCURRENCY", 3, 1, 6)
+    semaphore = asyncio.Semaphore(video_concurrency)
+    log_event(LOGGER, "harvest.videos_concurrency", total=len(videos), concurrency=video_concurrency, download=download, top_comments=top_comments)
+
+    async def process_video(index: int, video: dict) -> tuple[str, bool]:
+        async with semaphore:
+            aweme_id = video.get("aweme_id") or ""
+            progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=video_success + video_fail, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
+            item_failed = False
+            if download:
+                try:
+                    await download_audio_or_video_file(headers, video)
+                except Exception as e:
+                    video["download_error"] = f"{type(e).__name__}: {e}"
+                    item_failed = True
+                    log_event(LOGGER, "harvest.video_download_failure", aweme_id=aweme_id, error=video["download_error"])
+            if not aweme_id:
+                video["top_comments"] = []
+                video["comment_error"] = "missing aweme_id"
+                log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
+                return aweme_id, True
+            if top_comments <= 0:
+                video["top_comments"] = []
+                return aweme_id, item_failed
             try:
-                await download_audio_or_video_file(headers, video)
+                video["top_comments"] = await fetch_top_comments(crawler, aweme_id, top_comments)
             except Exception as e:
-                video["download_error"] = f"{type(e).__name__}: {e}"
+                video["top_comments"] = []
+                video["comment_error"] = f"{type(e).__name__}: {e}"
                 item_failed = True
-                log_event(LOGGER, "harvest.video_download_failure", aweme_id=aweme_id, error=video["download_error"])
-        if not aweme_id:
-            video["top_comments"] = []
-            video["comment_error"] = "missing aweme_id"
-            item_failed = True
-            log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
-            video_fail += 1
-            progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
-            continue
+                log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
+            return aweme_id, item_failed
+
+    tasks = [asyncio.create_task(process_video(index, video)) for index, video in enumerate(videos, start=1)]
+    for task in asyncio.as_completed(tasks):
         try:
-            video["top_comments"] = await fetch_top_comments(crawler, aweme_id, top_comments)
+            aweme_id, item_failed = await task
         except Exception as e:
-            video["top_comments"] = []
-            video["comment_error"] = f"{type(e).__name__}: {e}"
+            aweme_id = ""
             item_failed = True
-            log_event(LOGGER, "harvest.comment_failure", aweme_id=aweme_id, error=video["comment_error"])
+            log_event(LOGGER, "harvest.video_process_failure", error=f"{type(e).__name__}: {e}")
         if item_failed:
             video_fail += 1
         else:
             video_success += 1
-        progress(stage="videos", label=f"处理作品 {index}/{len(videos)}", done=index, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
+        done_count = video_success + video_fail
+        progress(stage="videos", label=f"处理作品 {done_count}/{len(videos)}", done=done_count, total=len(videos), success=video_success, fail=video_fail, current_aweme_id=aweme_id, status="running")
 
     result = {
         "target": target,

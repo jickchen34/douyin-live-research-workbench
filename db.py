@@ -869,9 +869,27 @@ def delete_videos(conn: sqlite3.Connection, video_ids: list[int], delete_files: 
     }
 
 
-def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
+def list_library(conn: sqlite3.Connection, video_ids: list[int] | None = None) -> list[dict]:
+    params: list[int] = []
+    where_clause = ""
+    if video_ids is not None:
+        normalized_ids = []
+        seen_ids = set()
+        for video_id in video_ids:
+            try:
+                normalized_id = int(video_id)
+            except Exception:
+                continue
+            if normalized_id <= 0 or normalized_id in seen_ids:
+                continue
+            normalized_ids.append(normalized_id)
+            seen_ids.add(normalized_id)
+        if not normalized_ids:
+            return []
+        where_clause = f"WHERE v.id IN ({','.join('?' for _ in normalized_ids)})"
+        params = normalized_ids
     rows = conn.execute(
-        """
+        f"""
         SELECT
             v.id, v.platform, v.source_url, v.title, v.description, v.duration, v.published_at,
             v.view_count, v.like_count, v.comment_count, v.repost_count, v.favorite_count,
@@ -883,8 +901,10 @@ def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
         LEFT JOIN creators c ON c.id = v.creator_id
         LEFT JOIN transcripts t ON t.video_id = v.id
         LEFT JOIN analyses a ON a.video_id = v.id
+        {where_clause}
         ORDER BY COALESCE(v.like_count, 0) DESC, v.updated_at DESC
-        """
+        """,
+        params,
     ).fetchall()
     data = []
     for r in rows:
@@ -909,6 +929,11 @@ def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
         item["top_comments"] = [dict(c) for c in comment_rows]
         item["score"] = score_video(item)
         data.append(item)
+    return data
+
+
+def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
+    data = list_library(conn)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data

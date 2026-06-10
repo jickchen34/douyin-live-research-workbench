@@ -32,6 +32,7 @@ from db import (
     init_db,
     get_agent_skill,
     get_or_create_active_agent_session,
+    list_library,
     list_failed_tasks,
     list_agent_chats,
     list_agent_sessions,
@@ -235,7 +236,6 @@ def execute_video_task(task_type: str, video_id: int, options: dict | None = Non
             update_video_paths(conn, video_id, status=f"{task_type}_failed", error=error)
         except Exception:
             pass
-        export_library_safely(conn)
         raise
     finally:
         release_video_task(task_type, video_id)
@@ -261,9 +261,6 @@ def run_batch_job(job_id: str, task_type: str, video_ids: list[int], options: di
                 done = success + fail
                 set_job_state(job_id, done=done, success=success, fail=fail, current_video_id=video_id)
                 set_task_progress(job_id, stage="running", label=f"{label} {done}/{len(video_ids)}", done=done, total=len(video_ids), success=success, fail=fail, current_video_id=video_id, status="running")
-        conn = connect()
-        init_db(conn)
-        export_library_safely(conn)
         set_job_state(job_id, status="done", done=len(video_ids), success=success, fail=fail, finished_at=time.time())
         set_task_progress(job_id, stage="done", label=f"批量{label}完成", done=len(video_ids), total=len(video_ids), success=success, fail=fail, status="done")
         log_event(LOGGER, "batch.success", job_id=job_id, task_type=task_type, total=len(video_ids), success=success, fail=fail)
@@ -950,7 +947,6 @@ def import_local_wechat_downloads(
                 fail=0,
                 status="running",
             )
-    library = export_library_safely(conn)
     return {
         "directory": str(directory),
         "file_count": len(files),
@@ -962,7 +958,6 @@ def import_local_wechat_downloads(
         "comments_backfill_count": comments_backfill_count,
         "comment_failure_count": comment_failure_count,
         "video_ids": imported_ids,
-        "library_count": len(library),
         "creator_id": creator_id,
         "creator_name": creator_name or "本地视频号下载",
         "download_batch_id": batch_id,
@@ -975,6 +970,24 @@ def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
     except Exception:
         parsed = default
     return max(minimum, min(maximum, parsed))
+
+
+def parse_video_ids(value: object, limit: int = 1000) -> list[int]:
+    raw_items = []
+    source_items = value if isinstance(value, list) else [value]
+    for source_item in source_items:
+        raw_items.extend(str(source_item or "").split(","))
+    video_ids = []
+    seen_ids = set()
+    for item in raw_items[:limit]:
+        try:
+            video_id = int(item)
+        except Exception:
+            continue
+        if 1 <= video_id <= 10_000_000 and video_id not in seen_ids:
+            video_ids.append(video_id)
+            seen_ids.add(video_id)
+    return video_ids
 
 
 def is_no_speech_asr_error(value: object) -> bool:
@@ -1000,6 +1013,12 @@ def export_current_library() -> list[dict]:
     conn = connect()
     init_db(conn)
     return export_library_safely(conn)
+
+
+def load_current_library(video_ids: list[int] | None = None) -> list[dict]:
+    conn = connect()
+    init_db(conn)
+    return list_library(conn, video_ids=video_ids)
 
 
 def analyze_video(video_id: int) -> dict:
@@ -1044,7 +1063,6 @@ def analyze_video(video_id: int) -> dict:
     )
     update_video_paths(conn, video_id, status="analyzed")
     clear_failed_task(conn, "analyze", video_id)
-    export_library_safely(conn)
     log_event(LOGGER, "analyze.success", video_id=video_id, parsed=bool(parsed), analysis_length=len(analysis_text))
     return {
         "video_id": video_id,
@@ -1194,7 +1212,6 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
             if is_no_audio_media_error(error_text):
                 update_video_paths(conn, video_id, status="no_speech", error="视频文件没有音轨，无法转录")
                 clear_failed_task(conn, "transcribe", video_id)
-                export_library_safely(conn)
                 log_event(LOGGER, "transcribe.no_audio_track", video_id=video_id, media_path=row["media_path"], error=error_text)
                 return {"video_id": video_id, "media_path": row["media_path"], "no_speech": True, "transcript_length": 0, "error": "视频文件没有音轨，无法转录"}
             raise
@@ -1211,7 +1228,6 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
         if is_no_speech_asr_error(error_text):
             update_video_paths(conn, video_id, status="no_speech", error="豆包语音 ASR 未检测到有效口播")
             clear_failed_task(conn, "transcribe", video_id)
-            export_library_safely(conn)
             log_event(LOGGER, "transcribe.no_speech", video_id=video_id, audio_path=str(audio_path), error=error_text)
             return {"video_id": video_id, "audio_path": str(audio_path), "no_speech": True, "transcript_length": 0}
         raise
@@ -1220,7 +1236,6 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
         if is_no_speech_asr_error(json.dumps(asr_result, ensure_ascii=False)):
             update_video_paths(conn, video_id, status="no_speech", error="豆包语音 ASR 未检测到有效口播")
             clear_failed_task(conn, "transcribe", video_id)
-            export_library_safely(conn)
             log_event(LOGGER, "transcribe.no_speech", video_id=video_id, audio_path=str(audio_path))
             return {"video_id": video_id, "audio_path": str(audio_path), "no_speech": True, "transcript_length": 0}
         raise RuntimeError(f"豆包语音 ASR 未返回可用文本：{json.dumps(asr_result, ensure_ascii=False)[:1000]}")
@@ -1231,7 +1246,6 @@ def transcribe_video(video_id: int, delete_media_after: bool = False) -> dict:
     if delete_media_after:
         deleted_media = delete_video_media_file(conn, video_id)
     clear_failed_task(conn, "transcribe", video_id)
-    export_library_safely(conn)
     log_event(LOGGER, "transcribe.success", video_id=video_id, transcript_length=len(transcript_text), audio_path=str(audio_path), result_path=str(result_path), deleted_media=deleted_media)
     return {
         "video_id": video_id,
@@ -1250,7 +1264,9 @@ class AppHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/library":
-            json_response(self, 200, export_current_library())
+            params = parse_qs(urlparse(self.path).query)
+            video_ids = parse_video_ids(params.get("ids", [])) if params.get("ids") else None
+            json_response(self, 200, load_current_library(video_ids=video_ids))
             return
         if path == "/api/failed-tasks":
             conn = connect()
@@ -1476,9 +1492,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 update_video_status(conn, video_id, status=status, error=None)
                 if status == "no_speech":
                     clear_failed_task(conn, "transcribe", video_id)
-                library = export_library_safely(conn)
                 log_event(LOGGER, "video.status_update", video_id=video_id, status=status)
-                json_response(self, 200, {"ok": True, "video_id": video_id, "status": status, "library_count": len(library)})
+                json_response(self, 200, {"ok": True, "video_id": video_id, "status": status})
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 log_event(LOGGER, "video.status_update_failure", error=error)
@@ -1684,7 +1699,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                 conn = connect()
                 saved = save_wechat_channels_result(conn, result, category=category, profile_url=f"wechat_channels://{username}")
                 clear_failed_task(conn, "wechat_harvest")
-                library = export_library_safely(conn)
                 set_task_progress(
                     task_id,
                     stage="saved",
@@ -1724,7 +1738,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                             "filters": result.get("filters"),
                         },
                         "saved": saved,
-                        "library_count": len(library),
                     },
                 )
             except Exception as e:
@@ -1805,7 +1818,6 @@ class AppHandler(SimpleHTTPRequestHandler):
             conn = connect()
             saved = save_harvest_result(conn, result, category=category, profile_url=target)
             clear_failed_task(conn, "harvest")
-            library = export_library_safely(conn)
             log_event(
                 LOGGER,
                 "harvest.success",
@@ -1836,7 +1848,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                         "raw_output": result.get("output"),
                     },
                     "saved": saved,
-                    "library_count": len(library),
                 },
             )
         except Exception as e:

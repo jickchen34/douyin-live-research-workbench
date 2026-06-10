@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import ssl
@@ -10,6 +11,7 @@ from typing import Any
 import urllib.error
 import urllib.request
 
+from app_logging import log_event
 from volcengine import load_local_env
 
 ROOT = Path(__file__).resolve().parent
@@ -19,6 +21,7 @@ DEFAULT_ASR_ENDPOINT = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/rec
 DEFAULT_ASR_RESOURCE_ID = "volc.seedasr.auc"
 DEFAULT_ASR_SUBMIT_ENDPOINT = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
 DEFAULT_ASR_QUERY_ENDPOINT = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
+LOGGER = logging.getLogger("douyin_live_research.asr")
 
 
 def run_command(args: list[str], timeout: int | None = None) -> subprocess.CompletedProcess[str]:
@@ -66,6 +69,14 @@ def extract_audio_for_asr(media_path: str | Path, video_id: int) -> Path:
         timeout=600,
     )
     return out
+
+
+def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)) or default)
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
 
 
 def require_asr_config() -> dict:
@@ -145,16 +156,35 @@ def audio_url_for_standard(audio_path: Path) -> str:
     if direct:
         return direct
     provider = os.environ.get("DOUBAO_ASR_UPLOAD_PROVIDER", "mp3tourl").strip().lower()
-    if provider == "mp3tourl":
-        return upload_audio_mp3tourl(audio_path)
-    if provider == "bashupload":
-        return upload_audio_bashupload(audio_path)
+    fallback_providers = [
+        item.strip().lower()
+        for item in os.environ.get("DOUBAO_ASR_UPLOAD_FALLBACKS", "bashupload").split(",")
+        if item.strip()
+    ]
+    providers: list[str] = []
+    for item in [provider, *fallback_providers]:
+        if item and item not in providers:
+            providers.append(item)
+    provider_errors: list[str] = []
+    for item in providers:
+        try:
+            if item == "mp3tourl":
+                return upload_audio_mp3tourl(audio_path)
+            if item == "bashupload":
+                return upload_audio_bashupload(audio_path)
+            provider_errors.append(f"{item}: 不支持的上传服务")
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+            provider_errors.append(f"{item}: {error}")
+            log_event(LOGGER, "asr.upload_provider_failure", provider=item, audio_path=str(audio_path), error=error)
     template = os.environ.get("DOUBAO_ASR_AUDIO_URL_TEMPLATE", "").strip()
     if template:
         return template.format(filename=audio_path.name, path=audio_path)
     public_base = os.environ.get("DOUBAO_ASR_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if public_base:
         return f"{public_base}/{audio_path.name}"
+    if provider_errors:
+        raise RuntimeError("音频上传失败：" + "；".join(provider_errors))
     raise RuntimeError(
         "标准版豆包 ASR 需要公网可访问的音频 URL。请配置 DOUBAO_ASR_AUDIO_URL、"
         "DOUBAO_ASR_AUDIO_URL_TEMPLATE、DOUBAO_ASR_PUBLIC_BASE_URL，或使用 DOUBAO_ASR_UPLOAD_PROVIDER=mp3tourl。"
@@ -162,27 +192,40 @@ def audio_url_for_standard(audio_path: Path) -> str:
 
 
 def upload_audio_mp3tourl(audio_path: Path) -> str:
-    result = run_command(
-        [
-            "curl",
-            "-sS",
-            "-F",
-            f"file=@{audio_path}",
-            "https://www.mp3tourl.com/api/upload-audio",
-        ],
-        timeout=180,
-    )
-    text = (result.stdout or "").strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"mp3tourl 未返回 JSON：{text[:1000]}") from e
-    if not data.get("success") or not data.get("url"):
-        raise RuntimeError(f"mp3tourl 上传失败：{json.dumps(data, ensure_ascii=False)[:1000]}")
-    return str(data["url"])
+    attempts = env_int("DOUBAO_ASR_UPLOAD_RETRIES", 3, 1, 5)
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            log_event(LOGGER, "asr.upload_start", provider="mp3tourl", audio_path=str(audio_path), bytes=audio_path.stat().st_size, attempt=attempt)
+            result = run_command(
+                [
+                    "curl",
+                    "-sS",
+                    "-F",
+                    f"file=@{audio_path}",
+                    "https://www.mp3tourl.com/api/upload-audio",
+                ],
+                timeout=180,
+            )
+            text = (result.stdout or "").strip()
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"mp3tourl 未返回 JSON：{text[:1000]}") from e
+            if not data.get("success") or not data.get("url"):
+                raise RuntimeError(f"mp3tourl 上传失败：{json.dumps(data, ensure_ascii=False)[:1000]}")
+            log_event(LOGGER, "asr.upload_success", provider="mp3tourl", audio_path=str(audio_path), attempt=attempt)
+            return str(data["url"])
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            log_event(LOGGER, "asr.upload_retry", provider="mp3tourl", audio_path=str(audio_path), attempt=attempt, max_attempts=attempts, error=last_error)
+            if attempt < attempts:
+                time.sleep(min(2 ** attempt, 8))
+    raise RuntimeError(last_error or "mp3tourl 上传失败")
 
 
 def upload_audio_bashupload(audio_path: Path) -> str:
+    log_event(LOGGER, "asr.upload_start", provider="bashupload", audio_path=str(audio_path), bytes=audio_path.stat().st_size, attempt=1)
     result = run_command(
         [
             "curl",
@@ -198,8 +241,45 @@ def upload_audio_bashupload(audio_path: Path) -> str:
     for line in text.splitlines():
         line = line.strip()
         if line.startswith("http://") or line.startswith("https://"):
-            return line.replace("http://", "https://", 1)
+            url = line.replace("http://", "https://", 1)
+            log_event(LOGGER, "asr.upload_success", provider="bashupload", audio_path=str(audio_path))
+            return url
     raise RuntimeError(f"bashupload 未返回可用链接：{text[:1000]}")
+
+
+def prepare_audio_for_standard_upload(audio: Path) -> Path:
+    threshold_mb = env_int("DOUBAO_ASR_TRANSCODE_THRESHOLD_MB", 8, 1, 200)
+    threshold_bytes = threshold_mb * 1024 * 1024
+    try:
+        size = audio.stat().st_size
+    except OSError:
+        return audio
+    if audio.suffix.lower() == ".mp3" or size <= threshold_bytes:
+        return audio
+    ASR_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    out = ASR_AUDIO_DIR / f"{audio.stem}_asr.mp3"
+    if out.exists() and out.stat().st_size > 0 and out.stat().st_mtime >= audio.stat().st_mtime:
+        return out
+    log_event(LOGGER, "asr.transcode_start", source=str(audio), output=str(out), bytes=size, threshold_mb=threshold_mb)
+    run_command(
+        [
+            ffmpeg_executable(),
+            "-y",
+            "-i",
+            str(audio),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-b:a",
+            "64k",
+            str(out),
+        ],
+        timeout=600,
+    )
+    log_event(LOGGER, "asr.transcode_success", source=str(audio), output=str(out), bytes=out.stat().st_size)
+    return out
 
 
 def recognize_audio_file(audio_path: str | Path) -> dict:
@@ -207,6 +287,8 @@ def recognize_audio_file(audio_path: str | Path) -> dict:
     audio = Path(audio_path)
     if not audio.exists():
         raise FileNotFoundError(f"音频文件不存在：{audio}")
+    if config["api_mode"] != "flash":
+        audio = prepare_audio_for_standard_upload(audio)
     suffix = audio.suffix.lower().lstrip(".") or "mp3"
     if suffix == "m4a":
         suffix = "mp4"

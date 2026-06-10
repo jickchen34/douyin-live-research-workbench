@@ -1701,8 +1701,8 @@
         if (data.result?.username && data.result.username !== username) els.wechatUsername.value = data.result.username;
         setWechatStatus(`完成：${data.result.creator_nickname || username}，拉取 ${fmt(data.result.fetched_video_count)} 条，入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
         setStatus(`视频号采集完成：入库 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
-        await loadAll();
         if (shouldAutoTranscribe || shouldAutoAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldAutoTranscribe, analyze: shouldAutoAnalyze, deleteMediaAfterTranscribe: Boolean(els.deleteMediaAfterHarvestTranscribe?.checked) });
+        else await loadAll();
       } catch (error) {
         stopProgressPolling();
         updateProgress('视频号采集失败', 1, 1, 0, 1);
@@ -1829,10 +1829,9 @@
         const enrichText = attached ? `，匹配并回补已有采集数据 ${fmt(backfilled)} 个` : '';
         const commentText = commentSaved || commentFailed ? `，评论保存 ${fmt(commentSaved)} 条${commentFailed ? `，${fmt(commentFailed)} 个视频评论拉取失败` : ''}` : '';
         setWechatLocalStatus(`导入完成：${scopeText}，入库 ${fmt(data.result.imported_count)} 个，新建本地素材 ${fmt(createdLocal)} 个${enrichText}${commentText}，作者 ${creatorName}。`, commentFailed ? 'bad' : 'ok');
-        await loadAll();
         if (shouldTranscribe) {
           await autoProcessHarvestedVideos(data.result.video_ids || [], { transcribe: true, analyze: shouldAnalyze, deleteMediaAfterTranscribe: shouldDeleteMedia });
-        }
+        } else await loadAll();
       } catch (error) {
         stopProgressPolling();
         updateProgress('视频号本地视频导入失败', 1, 1, 0, 1);
@@ -1853,6 +1852,13 @@
       buildCreatorColors();
       fillSelects();
       renderAll();
+    }
+    async function loadLibraryByIds(videoIds) {
+      const ids = [...new Set((videoIds || []).map(Number).filter(Number.isFinite))];
+      if (!ids.length) return [];
+      const res = await fetch(`/api/library?ids=${encodeURIComponent(ids.join(','))}&ts=${Date.now()}`);
+      if (!res.ok) throw new Error('素材加载失败：HTTP ' + res.status);
+      return await res.json();
     }
     async function loadFailedTasks() {
       const res = await fetch('/api/failed-tasks?ts=' + Date.now());
@@ -2580,8 +2586,7 @@
       let transcribeSummary = null;
       let analyzeSummary = null;
 
-      await loadAll();
-      let scoped = rows.filter(r => idSet.has(Number(r.id)));
+      let scoped = await loadLibraryByIds([...idSet]);
       if (shouldTranscribe) {
         const transcribeTargets = scoped.filter(canTranscribeRow);
         if (transcribeTargets.length) {
@@ -2589,8 +2594,7 @@
           updateProgress('采集后自动转录', 0, transcribeTargets.length, 0, 0);
           const taskId = await submitBatchTask('transcribe', transcribeTargets.map(row => row.id), {delete_media_after_transcribe: deleteMediaAfterTranscribe});
           transcribeSummary = await waitForRemoteTask(taskId);
-          await loadAll();
-          scoped = rows.filter(r => idSet.has(Number(r.id)));
+          if (shouldAnalyze) scoped = await loadLibraryByIds([...idSet]);
         } else {
           transcribeSummary = {success: 0, fail: 0};
         }
@@ -2668,8 +2672,8 @@
         stopProgressPolling();
         updateProgress('账号更新完成', 1, 1, 1, 0);
         setStatus(`账号更新完成：拉取 ${fmt(fetched)} 条，入库/更新 ${fmt(data.saved.saved_video_count)} 条。`, 'ok');
-        await loadAll();
         if (shouldTranscribe || shouldAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldTranscribe, analyze: shouldAnalyze, deleteMediaAfterTranscribe: Boolean(els.deleteMediaAfterHarvestTranscribe?.checked) });
+        else await loadAll();
         renderLibrary();
       } catch (error) {
         stopProgressPolling();
@@ -2893,8 +2897,8 @@
           stopProgressPolling();
           updateProgress('账号采集完成', 1, 1, 1, 0);
           setStatus(`完成：${data.result.creator_nickname || data.result.sec_user_id}，拉取 ${fetched} 条，筛选 ${data.result.video_count} 条，入库 ${data.saved.saved_video_count} 条。`, 'ok');
-          await loadAll();
           if (shouldAutoTranscribe || shouldAutoAnalyze) await autoProcessHarvestedVideos(data.saved?.saved_video_ids || [], { transcribe: shouldAutoTranscribe, analyze: shouldAutoAnalyze, deleteMediaAfterTranscribe: Boolean(els.deleteMediaAfterHarvestTranscribe?.checked) });
+          else await loadAll();
         }
         catch (error) { stopProgressPolling(); updateProgress('账号采集失败', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); await loadFailedTasks(); }
         finally { stopProgressPolling(); setBusy(false); }
