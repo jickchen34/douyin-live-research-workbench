@@ -25,6 +25,7 @@ from db import (
     connect,
     create_agent_session,
     delete_video,
+    delete_videos,
     delete_agent_skill,
     export_library,
     ignore_failed_task,
@@ -1491,12 +1492,44 @@ class AppHandler(SimpleHTTPRequestHandler):
                 conn = connect()
                 init_db(conn)
                 result = delete_video(conn, video_id, delete_files=delete_files)
-                library = export_library_safely(conn)
                 log_event(LOGGER, "video.delete", video_id=video_id, delete_files=delete_files, deleted_files=result.get("deleted_files"))
-                json_response(self, 200, {"ok": True, "result": result, "library_count": len(library)})
+                json_response(self, 200, {"ok": True, "result": result})
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 log_event(LOGGER, "video.delete_failure", error=error)
+                json_response(self, 500, {"ok": False, "error": error})
+            return
+        if path == "/api/videos/delete":
+            try:
+                payload = read_json(self)
+                raw_ids = payload.get("video_ids") or payload.get("ids") or []
+                if not isinstance(raw_ids, list):
+                    raise ValueError("video_ids 必须是数组")
+                video_ids = []
+                for item in raw_ids[:10_000]:
+                    try:
+                        parsed_id = int(item)
+                    except Exception:
+                        continue
+                    if 1 <= parsed_id <= 10_000_000:
+                        video_ids.append(parsed_id)
+                delete_files = bool(payload.get("delete_files", False))
+                conn = connect()
+                init_db(conn)
+                result = delete_videos(conn, video_ids, delete_files=delete_files)
+                log_event(
+                    LOGGER,
+                    "videos.delete",
+                    requested_count=len(video_ids),
+                    deleted_count=result.get("deleted_count"),
+                    missing_count=len(result.get("missing_ids") or []),
+                    delete_files=delete_files,
+                    deleted_file_count=len(result.get("deleted_files") or []),
+                )
+                json_response(self, 200, {"ok": True, "result": result})
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                log_event(LOGGER, "videos.delete_failure", error=error)
                 json_response(self, 500, {"ok": False, "error": error})
             return
         if path == "/api/wechat-channels/start":

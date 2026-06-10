@@ -813,6 +813,62 @@ def delete_video(conn: sqlite3.Connection, video_id: int, delete_files: bool = F
     return {"video_id": video_id, "delete_files": delete_files, "deleted_files": deleted_files}
 
 
+def delete_videos(conn: sqlite3.Connection, video_ids: list[int], delete_files: bool = False) -> dict:
+    init_db(conn)
+    normalized_ids = []
+    seen_ids = set()
+    for video_id in video_ids:
+        try:
+            normalized_id = int(video_id)
+        except Exception:
+            continue
+        if normalized_id <= 0 or normalized_id in seen_ids:
+            continue
+        normalized_ids.append(normalized_id)
+        seen_ids.add(normalized_id)
+    if not normalized_ids:
+        return {
+            "video_ids": [],
+            "deleted_count": 0,
+            "missing_ids": [],
+            "delete_files": delete_files,
+            "deleted_files": [],
+        }
+
+    placeholders = ",".join("?" for _ in normalized_ids)
+    rows = conn.execute(
+        f"""
+        SELECT v.id, v.media_path, v.audio_path, t.transcript_path
+        FROM videos v
+        LEFT JOIN transcripts t ON t.video_id = v.id
+        WHERE v.id IN ({placeholders})
+        """,
+        normalized_ids,
+    ).fetchall()
+    row_by_id = {int(row["id"]): row for row in rows}
+    deleted_files = []
+    if delete_files:
+        for video_id in normalized_ids:
+            row = row_by_id.get(video_id)
+            if not row:
+                continue
+            for key in ("media_path", "audio_path", "transcript_path"):
+                path_value = row[key]
+                if safe_unlink(path_value):
+                    deleted_files.append(path_value)
+
+    conn.execute(f"DELETE FROM videos WHERE id IN ({placeholders})", normalized_ids)
+    conn.commit()
+    missing_ids = [video_id for video_id in normalized_ids if video_id not in row_by_id]
+    return {
+        "video_ids": normalized_ids,
+        "deleted_count": len(row_by_id),
+        "missing_ids": missing_ids,
+        "delete_files": delete_files,
+        "deleted_files": deleted_files,
+    }
+
+
 def export_library(conn: sqlite3.Connection, output_path: Path) -> list[dict]:
     rows = conn.execute(
         """

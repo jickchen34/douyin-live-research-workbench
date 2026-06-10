@@ -2695,7 +2695,17 @@
       if (!deleteFiles) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？\n选择“取消”则只删除数据库记录。');
       setBusy(true); updateProgress('删除素材', 0, 1, 0, 0); setStatus('删除素材中，请稍候。');
-      try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) }); updateProgress('删除素材', 1, 1, 1, 0); selectedIds.delete(videoId); if (selectedId === videoId) selectedId = null; await loadAll(); setStatus('视频已删除。', 'ok'); }
+      try {
+        await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: videoId, delete_files: withFiles}) });
+        updateProgress('删除素材', 1, 1, 1, 0);
+        rows = rows.filter(item => Number(item.id) !== Number(videoId));
+        selectedIds.delete(videoId);
+        if (Number(selectedId) === Number(videoId)) selectedId = rows[0]?.id || null;
+        renderAll(); renderDetail();
+        loadFailedTasks().catch(() => {});
+        loadLogs().catch(() => {});
+        setStatus('视频已删除。', 'ok');
+      }
       catch (error) { updateProgress('删除素材', 1, 1, 0, 1); setStatus(String(error.message || error), 'bad'); }
       finally { setBusy(false); }
     }
@@ -2703,10 +2713,26 @@
       if (!data.length) return;
       if (!confirm(`确认删除 ${data.length} 条素材吗？`)) return;
       const withFiles = confirm('是否同时删除本地视频、音频和 ASR 文件？');
-      setBusy(true); setStatus('批量删除中，请稍候。'); let success = 0; let fail = 0; updateProgress('批量删除', 0, data.length, 0, 0);
+      const videoIds = data.map(row => row.id).filter(Boolean);
+      setBusy(true); setStatus('批量删除中，请稍候。'); updateProgress('批量删除', 0, data.length, 0, 0);
       try {
-        for (let i = 0; i < data.length; i += 1) { const row = data[i]; const progressLabel = `删除 ${i + 1}/${data.length}`; updateProgress(progressLabel, i, data.length, success, fail); setStatus(`${progressLabel}：视频 #${row.id} 正在处理。`); try { await requestJson('/api/video/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_id: row.id, delete_files: withFiles}) }); success += 1; } catch (_) { fail += 1; } updateProgress(progressLabel, i + 1, data.length, success, fail); }
-        selectedIds.clear(); await loadAll(); setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+        const response = await requestJson('/api/videos/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({video_ids: videoIds, delete_files: withFiles}) });
+        const result = response.result || {};
+        const success = Number(result.deleted_count || 0);
+        const missingIds = new Set((result.missing_ids || []).map(id => Number(id)));
+        const deletedIds = new Set(videoIds.map(id => Number(id)).filter(id => !missingIds.has(id)));
+        const fail = missingIds.size;
+        updateProgress('批量删除', data.length, data.length, success, fail);
+        rows = rows.filter(row => !deletedIds.has(Number(row.id)));
+        for (const videoId of deletedIds) selectedIds.delete(videoId);
+        if (selectedId && deletedIds.has(Number(selectedId))) selectedId = rows[0]?.id || null;
+        renderAll(); renderDetail();
+        loadFailedTasks().catch(() => {});
+        loadLogs().catch(() => {});
+        setStatus(`删除完成：成功 ${success} 条，失败 ${fail} 条。`, fail ? 'bad' : 'ok');
+      } catch (error) {
+        updateProgress('批量删除', data.length, data.length, 0, data.length);
+        setStatus(String(error.message || error), 'bad');
       } finally { setBusy(false); }
     }
     async function markRowsNoSpeech(data) {
