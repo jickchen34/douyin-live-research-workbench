@@ -1079,7 +1079,7 @@
                 <div class="batch-filters">
                   <div>
                     <label for="batchKeyword">关键词</label>
-                    <input id="batchKeyword" placeholder="标题、账号、评论" />
+                    <input id="batchKeyword" placeholder="标题、简介、账号、分类" />
                   </div>
                   <div>
                     <label for="batchCreator">账号</label>
@@ -1143,7 +1143,7 @@
             <div class="filter-bar">
               <div>
                 <label for="libKeyword">关键词</label>
-                <input id="libKeyword" placeholder="搜索标题、账号、评论、转录、分析" />
+                <input id="libKeyword" placeholder="搜索标题、简介、账号、分类" />
               </div>
               <div>
                 <label for="libCreator">账号</label>
@@ -1188,6 +1188,7 @@
           </section>
           <div class="toolbar"><span id="libraryCount" class="pill">0 条</span><span id="selectedCount" class="pill cyan">已选 0 条</span></div>
           <section id="cardGrid" class="card-grid"></section>
+          <div class="toolbar"><button id="libraryLoadMoreButton" type="button" hidden>加载更多</button></div>
         </div>
       </section>
 
@@ -1296,6 +1297,7 @@
     let agentSessionByVideo = new Map();
     let agentSessionsByVideo = new Map();
     let pendingAgentByVideo = new Map();
+    let detailLoadPromises = new Map();
     let selectedAgentSkillId = null;
     let selectedAgentModelId = 'doubao-2-pro';
     let agentSkillMenuOpen = false;
@@ -1303,6 +1305,9 @@
     const creatorColorSeed = Math.random();
     const collapsedBlocks = new Set();
     let progressPollTimer = null;
+    const LIBRARY_RENDER_BATCH = 120;
+    const DETAIL_LOAD_BATCH = 200;
+    let libraryRenderLimit = LIBRARY_RENDER_BATCH;
 
     const statusOptions = [
       ['','全部状态'], ['harvested','已采集'], ['downloaded','已下载'], ['transcribed','已转录'],
@@ -1317,7 +1322,7 @@
         'wechatLocalDir','wechatLocalCreator','wechatScanBatchesButton','wechatImportLocalButton','wechatImportTranscribeButton','wechatAnalyzeLocalAfterTranscribe','wechatDeleteLocalAfterTranscribe','wechatLocalCountBadge','wechatLocalStatus','wechatBatchList',
         'batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes','batchScope','batchBreakdown','batchPreview','batchTranscribeButton','batchAnalyzeButton','batchNoSpeechButton','batchDeleteButton','deleteMediaAfterBatchTranscribe',
         'progressLabel','progressCount','progressFill','progressSuccess','progressFail','statusStrip',
-        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
+        'libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort','libraryCreatorCard','libraryCreatorName','libraryCreatorIdBadge','libraryCreatorMeta','updateCreatorButton','updateCreatorTranscribe','updateCreatorAnalyze','cardGrid','libraryCount','selectedCount','libraryLoadMoreButton','selectAllButton','selectVisibleButton','clearSelectionButton','selectedTranscribeButton','selectedAnalyzeButton','selectedDeleteButton',
         'detailPageGrid','detailSideList','detailSidePanel','toggleLeftRail','toggleRightRail','detailKeyword','detailStatus','detailSortLikes','detailSortPublished','detailCreatorTags','detailListCount','compactList','exportDetailListButton','detailMain','currentTaskBadge','currentTaskPanel',
         'agentSkillButton','agentSkillMenu','agentSkillList','agentSkillName','agentSkillPrompt','agentSaveSkillButton','agentNewSkillButton','agentModelSelect','agentQuestion','agentSendButton','agentChatList','agentSelectedSkillBadge',
         'failureList','failureListFull','refreshFailedButton','refreshFailedButton2','refreshLogsButton','logBox','loadingMask','loadingText','loadingProgressLabel','loadingProgressCount','loadingProgressTrack','loadingProgressFill','loadingProgressSuccess','loadingProgressFail'
@@ -1472,9 +1477,15 @@
     function hasLocalMedia(r) {
       return Boolean(r && (r.audio_path || r.media_path));
     }
+    function hasTranscript(r) {
+      return Boolean(r && (r.has_transcript || r.transcript_text));
+    }
+    function hasAnalysis(r) {
+      return Boolean(r && (r.has_analysis || r.analysis_text));
+    }
     function canTranscribeRow(r) {
       const s = r.status || '';
-      return hasLocalMedia(r) && !r.transcript_text && s !== 'no_speech' && s !== 'transcribe_running';
+      return hasLocalMedia(r) && !hasTranscript(r) && s !== 'no_speech' && s !== 'transcribe_running';
     }
     function statusText(r) {
       const s = r.status || '';
@@ -1484,8 +1495,8 @@
       if (s === 'no_speech') return '无口播';
       if (s === 'ignored') return '已忽略';
       if (s.includes('failed')) return '失败';
-      if (r.analysis_text) return '已分析';
-      if (r.transcript_text) return '已转录';
+      if (hasAnalysis(r)) return '已分析';
+      if (hasTranscript(r)) return '已转录';
       if (hasLocalMedia(r)) return '已下载';
       return s || '已采集';
     }
@@ -1498,8 +1509,7 @@
       return '';
     }
     function rowText(r) {
-      const comments = (r.top_comments || []).map(c => c.content).join('\n');
-      return [r.title, r.description, r.creator_name, r.category, comments, r.transcript_text, r.analysis_text, r.status].join('\n').toLowerCase();
+      return [r.title, r.description, r.creator_name, r.category, r.status].join('\n').toLowerCase();
     }
     async function requestJson(url, options) {
       const res = await fetch(url, options);
@@ -1860,6 +1870,48 @@
       if (!res.ok) throw new Error('素材加载失败：HTTP ' + res.status);
       return await res.json();
     }
+    function mergeLibraryRows(detailRows) {
+      const detailsById = new Map((detailRows || []).map(row => [Number(row.id), row]));
+      rows = rows.map(row => detailsById.has(Number(row.id)) ? {...row, ...detailsById.get(Number(row.id))} : row);
+    }
+    async function ensureLibraryDetails(videoIds) {
+      const ids = [...new Set((videoIds || []).map(Number).filter(Number.isFinite))];
+      const missingIds = ids.filter(id => !rows.find(row => Number(row.id) === id)?.details_loaded);
+      if (!missingIds.length) return;
+      for (let offset = 0; offset < missingIds.length; offset += DETAIL_LOAD_BATCH) {
+        const detailRows = await loadLibraryByIds(missingIds.slice(offset, offset + DETAIL_LOAD_BATCH));
+        mergeLibraryRows(detailRows);
+      }
+    }
+    function loadSelectedDetail() {
+      const videoId = Number(selectedId);
+      if (!Number.isFinite(videoId) || videoId <= 0) {
+        renderDetail();
+        return Promise.resolve();
+      }
+      const existingPromise = detailLoadPromises.get(videoId);
+      if (existingPromise) return existingPromise;
+      const row = rows.find(item => Number(item.id) === videoId);
+      const tasks = [];
+      if (row && !row.details_loaded) tasks.push(ensureLibraryDetails([videoId]));
+      if (!agentChatsByVideo.has(videoId)) tasks.push(loadAgentChats(videoId));
+      if (!tasks.length) {
+        renderDetail();
+        return Promise.resolve();
+      }
+      renderDetail();
+      const promise = Promise.all(tasks)
+        .then(() => {
+          if (Number(selectedId) === videoId) renderDetail();
+        })
+        .catch(error => {
+          if (Number(selectedId) === videoId) setStatus(String(error.message || error), 'bad');
+          throw error;
+        })
+        .finally(() => detailLoadPromises.delete(videoId));
+      detailLoadPromises.set(videoId, promise);
+      return promise;
+    }
     async function loadFailedTasks() {
       const res = await fetch('/api/failed-tasks?ts=' + Date.now());
       if (!res.ok) throw new Error('失败任务加载失败：HTTP ' + res.status);
@@ -1889,12 +1941,15 @@
       agentChatsByVideo.set(Number(videoId), data.chats || []);
     }
     async function loadAll() {
-      await loadAgentMeta();
-      await loadLibrary();
-      await loadFailedTasks();
-      await loadLogs();
-      if (selectedId) await loadAgentChats(selectedId);
-      renderDetail();
+      await Promise.all([
+        loadAgentMeta(),
+        loadLibrary(),
+        loadFailedTasks(),
+        loadLogs(),
+      ]);
+      if (currentPage === 'detail' && selectedId) {
+        await loadSelectedDetail();
+      }
     }
     function fillStatusSelect(select) {
       const old = select.value;
@@ -1939,10 +1994,10 @@
       if (!value) return true;
       const s = r.status || '';
       if (value === 'failed') return s.includes('failed');
-      if (value === 'transcribed') return Boolean(r.transcript_text) && !r.analysis_text && s !== 'no_speech';
-      if (value === 'analyzed') return Boolean(r.analysis_text);
-      if (value === 'downloaded') return hasLocalMedia(r) && !r.transcript_text && !s.includes('failed') && s !== 'no_speech';
-      if (value === 'harvested') return !hasLocalMedia(r) && !r.transcript_text && !s.includes('failed');
+      if (value === 'transcribed') return hasTranscript(r) && !hasAnalysis(r) && s !== 'no_speech';
+      if (value === 'analyzed') return hasAnalysis(r);
+      if (value === 'downloaded') return hasLocalMedia(r) && !hasTranscript(r) && !s.includes('failed') && s !== 'no_speech';
+      if (value === 'harvested') return !hasLocalMedia(r) && !hasTranscript(r) && !s.includes('failed');
       return s === value;
     }
     function applyFilters(source, prefix) {
@@ -1987,8 +2042,8 @@
         profileUrl,
         total: scoped.length,
         downloaded: scoped.filter(hasLocalMedia).length,
-        transcribed: scoped.filter(r => r.transcript_text).length,
-        analyzed: scoped.filter(r => r.analysis_text).length,
+        transcribed: scoped.filter(hasTranscript).length,
+        analyzed: scoped.filter(hasAnalysis).length,
         noSpeech: scoped.filter(r => r.status === 'no_speech').length,
       };
     }
@@ -2062,8 +2117,8 @@
     function renderSummary() {
       const creators = new Set(rows.map(r => r.creator_name).filter(Boolean));
       const downloaded = rows.filter(hasLocalMedia).length;
-      const transcribed = rows.filter(r => r.transcript_text).length;
-      const analyzed = rows.filter(r => r.analysis_text).length;
+      const transcribed = rows.filter(hasTranscript).length;
+      const analyzed = rows.filter(hasAnalysis).length;
       const noSpeech = rows.filter(r => r.status === 'no_speech').length;
       els.summary.innerHTML = `
         <span class="pill">账号 <b>${fmt(creators.size)}</b></span>
@@ -2077,7 +2132,7 @@
     function renderStatusStrip() {
       const stats = [
         ['总素材', rows.length, ''], ['可转录', rows.filter(canTranscribeRow).length, 'cyan'],
-        ['可分析', rows.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running').length, 'cyan'], ['已分析', rows.filter(r => r.analysis_text).length, 'green'],
+        ['可分析', rows.filter(r => hasTranscript(r) && !hasAnalysis(r) && r.status !== 'analyze_running').length, 'cyan'], ['已分析', rows.filter(hasAnalysis).length, 'green'],
         ['无口播', rows.filter(r => r.status === 'no_speech').length, 'amber'], ['失败任务', failedTasks.length, 'red']
       ];
       els.statusStrip.innerHTML = stats.map(([label, value, cls]) => `<div class="mini-stat"><span>${label}</span><b class="${cls ? 'pill ' + cls : ''}">${fmt(value)}</b></div>`).join('');
@@ -2085,7 +2140,7 @@
     function renderBatch() {
       const data = batchCandidates();
       const canTranscribe = data.filter(canTranscribeRow);
-      const canAnalyze = data.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
+      const canAnalyze = data.filter(r => hasTranscript(r) && !hasAnalysis(r) && r.status !== 'analyze_running');
       els.batchScope.textContent = `候选 ${fmt(data.length)} 条`;
       els.batchBreakdown.textContent = `转录 ${fmt(canTranscribe.length)} / 分析 ${fmt(canAnalyze.length)}`;
       els.batchPreview.innerHTML = data.length ? data.slice(0, 12).map(r => `
@@ -2111,10 +2166,13 @@
     }
     function renderLibrary() {
       const data = libraryRows();
+      const visibleRows = data.slice(0, libraryRenderLimit);
       renderLibraryCreatorCard();
-      els.libraryCount.textContent = `${fmt(data.length)} 条`;
+      els.libraryCount.textContent = data.length > visibleRows.length ? `${fmt(data.length)} 条，已显示 ${fmt(visibleRows.length)} 条` : `${fmt(data.length)} 条`;
       els.selectedCount.textContent = `已选 ${fmt(selectedIds.size)} 条`;
-      els.cardGrid.innerHTML = data.length ? data.map(cardHtml).join('') : '<div class="empty">暂无素材</div>';
+      els.cardGrid.innerHTML = visibleRows.length ? visibleRows.map(cardHtml).join('') : '<div class="empty">暂无素材</div>';
+      els.libraryLoadMoreButton.hidden = visibleRows.length >= data.length;
+      els.libraryLoadMoreButton.textContent = `加载更多（剩余 ${fmt(Math.max(0, data.length - visibleRows.length))} 条）`;
       for (const card of els.cardGrid.querySelectorAll('.task-card')) {
         card.onclick = event => {
           const target = event.target;
@@ -2149,13 +2207,16 @@
           <div class="compact-title">${html(r.title)}</div>
           <div class="task-meta"><span class="score">${fmt(r.like_count)} 赞</span><span class="pill ${statusClass(r)}">${html(statusText(r))}</span></div>
         </div>`).join('') : '<div class="empty">暂无任务</div>';
-      for (const item of els.compactList.querySelectorAll('[data-compact]')) item.onclick = () => { selectedId = Number(item.dataset.compact); renderDetail(); };
+      for (const item of els.compactList.querySelectorAll('[data-compact]')) item.onclick = () => {
+        selectedId = Number(item.dataset.compact);
+        loadSelectedDetail().catch(() => {});
+      };
       for (const item of els.detailCreatorTags.querySelectorAll('[data-detail-creator]')) item.onclick = () => {
         selectedDetailCreator = item.dataset.detailCreator || '';
         selectedId = null;
         renderCompactList();
       };
-      renderDetail();
+      loadSelectedDetail().catch(() => {});
     }
     function transcriptParagraphs(text) {
       if (!text) return '<div class="muted">暂无转录文本</div>';
@@ -2301,6 +2362,12 @@
         els.currentTaskPanel.textContent = '暂无任务';
         return;
       }
+      if (!r.details_loaded) {
+        els.detailMain.innerHTML = '<div class="empty">正在加载素材详情...</div>';
+        els.currentTaskBadge.textContent = statusText(r);
+        els.currentTaskPanel.textContent = `平台：${platformLabel(r.platform)}\n账号：${safe(r.creator_name)}\n状态：${statusText(r)}`;
+        return;
+      }
       document.querySelectorAll('[data-compact]').forEach(x => x.classList.toggle('active', Number(x.dataset.compact) === selectedId));
       const comments = (r.top_comments || []).map(c => `<div class="comment"><div class="comment-likes">${fmt(c.like_count)} 赞</div><div>${html(c.content)}</div></div>`).join('');
       const actionsBlock = `<div class="text-box">视频 ID：${fmt(r.id)}\n来源：${html(r.source_url)}\n视频：${html(r.media_path)}\n音频：${html(r.audio_path)}</div>`;
@@ -2334,7 +2401,13 @@
         for (const btn of root.querySelectorAll('[data-nospeech-fail]')) btn.onclick = () => markFailedNoSpeech(Number(btn.dataset.nospeechFail));
       }
     }
-    function renderAll() { renderSummary(); renderStatusStrip(); renderBatch(); renderLibrary(); renderCompactList(); }
+    function renderAll() {
+      renderSummary();
+      renderStatusStrip();
+      if (currentPage === 'workbench') renderBatch();
+      if (currentPage === 'library') renderLibrary();
+      if (currentPage === 'detail') renderCompactList();
+    }
     function renderRails() {
       els.detailPageGrid.classList.toggle('left-collapsed', leftRailCollapsed);
       els.detailPageGrid.classList.toggle('right-open', rightRailOpen);
@@ -2355,6 +2428,8 @@
         renderRails();
         renderCompactList();
       }
+      if (page === 'library') renderLibrary();
+      if (page === 'workbench') renderBatch();
     }
     function switchWorkbenchSource(source) {
       activeWorkbenchSource = source === 'wechat' ? 'wechat' : 'douyin';
@@ -2374,8 +2449,6 @@
       const row = rows.find(r => r.id === selectedId);
       if (row) selectedDetailCreator = creatorName(row);
       switchPage('detail');
-      renderAll();
-      loadAgentChats(id).then(() => renderDetail()).catch(error => setStatus(String(error.message || error), 'bad'));
     }
     function bindCardButtons(root) {
       for (const btn of root.querySelectorAll('[data-open]')) btn.onclick = e => { e.stopPropagation(); openDetail(Number(btn.dataset.open)); };
@@ -2558,7 +2631,7 @@
     async function runBatch(type, explicitRows = null) {
       if (busy) return;
       const source = explicitRows || batchCandidates();
-      const candidates = source.filter(r => type === 'transcribe' ? canTranscribeRow(r) : r.transcript_text && !r.analysis_text && r.status !== 'analyze_running');
+      const candidates = source.filter(r => type === 'transcribe' ? canTranscribeRow(r) : hasTranscript(r) && !hasAnalysis(r) && r.status !== 'analyze_running');
       if (!candidates.length) { setStatus(type === 'transcribe' ? '没有需要转录的候选视频。' : '没有需要分析的候选视频。'); return; }
       const actionLabel = type === 'transcribe' ? '转录' : '分析';
       const deleteMediaAfterTranscribe = type === 'transcribe' && Boolean(els.deleteMediaAfterBatchTranscribe?.checked);
@@ -2601,7 +2674,7 @@
       }
 
       if (shouldAnalyze) {
-        const analyzeTargets = scoped.filter(r => r.transcript_text && !r.analysis_text && r.status !== 'no_speech' && r.status !== 'analyze_running');
+        const analyzeTargets = scoped.filter(r => hasTranscript(r) && !hasAnalysis(r) && r.status !== 'no_speech' && r.status !== 'analyze_running');
         if (analyzeTargets.length) {
           setStatus(`正在提交 ${analyzeTargets.length} 条自动分析任务。`);
           updateProgress('采集后自动分析', 0, analyzeTargets.length, 0, 0);
@@ -2819,19 +2892,26 @@
     function fileSafeName(value) {
       return safe(value).replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 60) || 'douyin_export';
     }
-    function exportDetailList() {
+    async function exportDetailList() {
       const data = detailRows();
       if (!data.length) { setStatus('当前内容列表为空，无法导出。', 'bad'); return; }
+      try {
+        await ensureLibraryDetails(data.map(row => row.id));
+      } catch (error) {
+        setStatus(`导出前加载详情失败：${String(error.message || error)}`, 'bad');
+        return;
+      }
+      const detailedData = detailRows();
       const lines = [
         `# ${mdText(selectedDetailCreator)} 内容导出`,
         '',
         `- 导出时间：${new Date().toLocaleString('zh-CN')}`,
         `- 当前状态筛选：${els.detailStatus?.selectedOptions?.[0]?.textContent || '全部状态'}`,
         `- 当前排序：${detailSortLabels().join('，')}`,
-        `- 内容数量：${data.length}`,
+        `- 内容数量：${detailedData.length}`,
         '',
       ];
-      data.forEach((r, index) => {
+      detailedData.forEach((r, index) => {
         const comments = Array.isArray(r.top_comments) ? r.top_comments : [];
         lines.push(
           `## ${index + 1}. ${mdText(r.title)}`,
@@ -2878,7 +2958,7 @@
       link.click();
       URL.revokeObjectURL(link.href);
       link.remove();
-      setStatus(`已导出 ${data.length} 条内容。`, 'ok');
+      setStatus(`已导出 ${detailedData.length} 条内容。`, 'ok');
     }
     function attachEvents() {
       document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => switchPage(tab.dataset.page));
@@ -2921,7 +3001,11 @@
         renderWechatControls();
       });
       for (const id of ['batchKeyword','batchCreator','batchCategory','batchStatus','batchMinLikes']) els[id].addEventListener('input', renderBatch), els[id].addEventListener('change', renderBatch);
-      for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) els[id].addEventListener('input', renderLibrary), els[id].addEventListener('change', renderLibrary);
+      for (const id of ['libKeyword','libCreator','libCategory','libStatus','libMinLikes','libSort']) {
+        const refreshLibrary = () => { libraryRenderLimit = LIBRARY_RENDER_BATCH; renderLibrary(); };
+        els[id].addEventListener('input', refreshLibrary);
+        els[id].addEventListener('change', refreshLibrary);
+      }
       for (const id of ['detailKeyword','detailStatus','detailSortLikes','detailSortPublished']) els[id].addEventListener('input', renderCompactList), els[id].addEventListener('change', renderCompactList);
       els.updateCreatorButton.onclick = updateSelectedCreator;
       els.batchTranscribeButton.onclick = () => runBatch('transcribe');
@@ -2929,6 +3013,7 @@
       els.batchNoSpeechButton.onclick = () => markRowsNoSpeech(batchCandidates());
       els.batchDeleteButton.onclick = () => deleteRows(batchCandidates());
       els.refreshButton.onclick = () => loadAll().catch(e => setStatus(e.message, 'bad'));
+      els.libraryLoadMoreButton.onclick = () => { libraryRenderLimit += LIBRARY_RENDER_BATCH; renderLibrary(); };
       els.selectAllButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
       els.selectVisibleButton.onclick = () => { for (const r of libraryRows()) selectedIds.add(r.id); renderLibrary(); };
       els.clearSelectionButton.onclick = () => { selectedIds.clear(); renderLibrary(); };

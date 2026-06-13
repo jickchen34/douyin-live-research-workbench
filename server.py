@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import gzip
 import hashlib
 import json
 import logging
@@ -27,7 +28,6 @@ from db import (
     delete_video,
     delete_videos,
     delete_agent_skill,
-    export_library,
     ignore_failed_task,
     init_db,
     get_agent_skill,
@@ -66,7 +66,6 @@ LOGGER = logging.getLogger("douyin_live_research.server")
 load_local_env()
 PROGRESS_LOCK = threading.Lock()
 PROGRESS_STATE: dict[str, dict] = {}
-EXPORT_LOCK = threading.Lock()
 ACTIVE_HARVEST_LOCK = threading.Lock()
 ACTIVE_HARVEST_KEYS: set[str] = set()
 ACTIVE_VIDEO_TASK_LOCK = threading.Lock()
@@ -95,11 +94,6 @@ BATCH_LIMITS = {
     "transcribe": env_int("BATCH_TRANSCRIBE_CONCURRENCY", 2, 1, 4),
     "analyze": env_int("BATCH_ANALYZE_CONCURRENCY", 2, 1, 4),
 }
-
-
-def export_library_safely(conn) -> list[dict]:
-    with EXPORT_LOCK:
-        return export_library(conn, WEB_ROOT / "library.json")
 
 
 def set_task_progress(task_id: str | None, **updates: object) -> None:
@@ -316,9 +310,15 @@ def enqueue_batch_job(task_type: str, video_ids: list[int], options: dict | None
 
 
 def json_response(handler: SimpleHTTPRequestHandler, status: int, payload: dict | list) -> None:
-    body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    encoded_with_gzip = "gzip" in (handler.headers.get("Accept-Encoding") or "").lower() and len(body) >= 1024
+    if encoded_with_gzip:
+        body = gzip.compress(body, compresslevel=5)
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
+    if encoded_with_gzip:
+        handler.send_header("Content-Encoding", "gzip")
+        handler.send_header("Vary", "Accept-Encoding")
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -1009,16 +1009,13 @@ def is_no_audio_media_error(value: object) -> bool:
     return any(marker in text for marker in markers)
 
 
-def export_current_library() -> list[dict]:
+def load_current_library(
+    video_ids: list[int] | None = None,
+    include_details: bool = False,
+) -> list[dict]:
     conn = connect()
     init_db(conn)
-    return export_library_safely(conn)
-
-
-def load_current_library(video_ids: list[int] | None = None) -> list[dict]:
-    conn = connect()
-    init_db(conn)
-    return list_library(conn, video_ids=video_ids)
+    return list_library(conn, video_ids=video_ids, include_details=include_details)
 
 
 def analyze_video(video_id: int) -> dict:
@@ -1266,7 +1263,12 @@ class AppHandler(SimpleHTTPRequestHandler):
         if path == "/api/library":
             params = parse_qs(urlparse(self.path).query)
             video_ids = parse_video_ids(params.get("ids", [])) if params.get("ids") else None
-            json_response(self, 200, load_current_library(video_ids=video_ids))
+            include_details = video_ids is not None or (params.get("details") or [""])[0].lower() in {"1", "true", "yes"}
+            json_response(
+                self,
+                200,
+                load_current_library(video_ids=video_ids, include_details=include_details),
+            )
             return
         if path == "/api/failed-tasks":
             conn = connect()
@@ -1883,7 +1885,6 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
-    export_current_library()
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     log_event(LOGGER, "server.start", host=args.host, port=args.port)
     print(f"服务已启动：http://{args.host}:{args.port}/")

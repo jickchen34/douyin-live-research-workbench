@@ -133,6 +133,12 @@ def init_db(conn: sqlite3.Connection) -> None:
         ON agent_sessions(video_id)
         WHERE is_active = 1;
 
+        CREATE INDEX IF NOT EXISTS idx_comments_video_like
+        ON comments(video_id, like_count DESC, id ASC);
+
+        CREATE INDEX IF NOT EXISTS idx_videos_like_updated
+        ON videos(like_count DESC, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS failed_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_type TEXT NOT NULL,
@@ -869,7 +875,11 @@ def delete_videos(conn: sqlite3.Connection, video_ids: list[int], delete_files: 
     }
 
 
-def list_library(conn: sqlite3.Connection, video_ids: list[int] | None = None) -> list[dict]:
+def list_library(
+    conn: sqlite3.Connection,
+    video_ids: list[int] | None = None,
+    include_details: bool = True,
+) -> list[dict]:
     params: list[int] = []
     where_clause = ""
     if video_ids is not None:
@@ -888,47 +898,74 @@ def list_library(conn: sqlite3.Connection, video_ids: list[int] | None = None) -
             return []
         where_clause = f"WHERE v.id IN ({','.join('?' for _ in normalized_ids)})"
         params = normalized_ids
+    detail_columns = """
+            t.transcript_text,
+            a.analysis_text, a.analysis_json,
+    """ if include_details else ""
     rows = conn.execute(
         f"""
         SELECT
             v.id, v.platform, v.source_url, v.title, v.description, v.duration, v.published_at,
             v.view_count, v.like_count, v.comment_count, v.repost_count, v.favorite_count,
-            v.media_path, v.audio_path, v.metadata_json, v.status, v.error, v.created_at, v.updated_at,
-            c.name AS creator_name, c.category, c.sec_user_id AS creator_sec_user_id, c.profile_url AS creator_profile_url,
-            t.transcript_text,
-            a.analysis_text, a.analysis_json
+            v.media_path, v.audio_path, v.status, v.error, v.created_at, v.updated_at,
+            c.name AS creator_name, c.category,
+            COALESCE(
+                c.sec_user_id,
+                CASE WHEN json_valid(v.metadata_json) THEN json_extract(v.metadata_json, '$.author_sec_user_id') END
+            ) AS creator_sec_user_id,
+            c.profile_url AS creator_profile_url,
+            {detail_columns}
+            CASE WHEN t.video_id IS NULL THEN 0 ELSE 1 END AS has_transcript,
+            CASE WHEN a.video_id IS NULL THEN 0 ELSE 1 END AS has_analysis
         FROM videos v
         LEFT JOIN creators c ON c.id = v.creator_id
         LEFT JOIN transcripts t ON t.video_id = v.id
         LEFT JOIN analyses a ON a.video_id = v.id
         {where_clause}
-        ORDER BY COALESCE(v.like_count, 0) DESC, v.updated_at DESC
+        ORDER BY v.like_count DESC, v.updated_at DESC
         """,
         params,
     ).fetchall()
     data = []
     for r in rows:
         item = dict(r)
-        try:
-            metadata = json.loads(item.get("metadata_json") or "{}")
-        except Exception:
-            metadata = {}
-        if not item.get("creator_sec_user_id"):
-            item["creator_sec_user_id"] = metadata.get("author_sec_user_id")
-        item.pop("metadata_json", None)
-        comment_rows = conn.execute(
-            """
-            SELECT content, like_count, published_at
-            FROM comments
-            WHERE video_id = ?
-            ORDER BY COALESCE(like_count, 0) DESC, id ASC
-            LIMIT 10
-            """,
-            (item["id"],),
-        ).fetchall()
-        item["top_comments"] = [dict(c) for c in comment_rows]
+        item["details_loaded"] = include_details
         item["score"] = score_video(item)
         data.append(item)
+
+    if include_details and data:
+        ids = [int(item["id"]) for item in data]
+        placeholders = ",".join("?" for _ in ids)
+        comment_rows = conn.execute(
+            f"""
+            WITH ranked_comments AS (
+                SELECT
+                    video_id, content, like_count, published_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY video_id
+                        ORDER BY like_count DESC, id ASC
+                    ) AS row_number
+                FROM comments
+                WHERE video_id IN ({placeholders})
+            )
+            SELECT video_id, content, like_count, published_at
+            FROM ranked_comments
+            WHERE row_number <= 10
+            ORDER BY video_id ASC, row_number ASC
+            """,
+            ids,
+        ).fetchall()
+        comments_by_video: dict[int, list[dict]] = {video_id: [] for video_id in ids}
+        for comment in comment_rows:
+            comments_by_video[int(comment["video_id"])].append(
+                {
+                    "content": comment["content"],
+                    "like_count": comment["like_count"],
+                    "published_at": comment["published_at"],
+                }
+            )
+        for item in data:
+            item["top_comments"] = comments_by_video.get(int(item["id"]), [])
     return data
 
 
@@ -944,6 +981,6 @@ def score_video(item: dict) -> float:
     comments = item.get("comment_count") or 0
     favorites = item.get("favorite_count") or 0
     reposts = item.get("repost_count") or 0
-    transcript_bonus = 20 if item.get("transcript_text") else 0
-    analysis_bonus = 30 if item.get("analysis_text") else 0
+    transcript_bonus = 20 if item.get("has_transcript") or item.get("transcript_text") else 0
+    analysis_bonus = 30 if item.get("has_analysis") or item.get("analysis_text") else 0
     return round(likes * 1.0 + comments * 3.0 + favorites * 2.0 + reposts * 2.5 + transcript_bonus + analysis_bonus, 2)
